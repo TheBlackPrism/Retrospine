@@ -61,7 +61,11 @@ The first visit shows the setup page; the account you create is the admin.
 
 - Unit tests live next to the code in `__tests__` folders and run with
   Vitest (`pnpm test`). They cover Google Books normalization and retries,
-  Open Library series parsing, and progress/session derivation.
+  Open Library series parsing, progress/session derivation, and the parsing
+  of Tolino Cloud inventory and reading-state responses.
+- The Tolino Cloud client and the Google Books client read
+  `TOLINO_API_BASE`, `TOLINO_BOSH_BASE` and `GOOGLE_BOOKS_API_BASE` so a test
+  can point them at a local stand-in server; leave them unset in production.
 - The end-to-end smoke test in `e2e/` drives a real browser through setup,
   shelves, milestones, user administration and the complete OIDC flow
   against a mock provider. See [`e2e/README.md`](../e2e/README.md).

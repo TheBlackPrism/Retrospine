@@ -41,6 +41,16 @@ export const env = {
   get autoMigrate(): boolean {
     return (process.env.AUTO_MIGRATE ?? "true").toLowerCase() !== "false";
   },
+  /**
+   * Minutes between automatic Tolino Cloud syncs (default 60). `0`, `false`
+   * or `off` disables the scheduler; the "Sync now" button keeps working.
+   */
+  get tolinoSyncIntervalMinutes(): number {
+    const raw = (process.env.TOLINO_SYNC_INTERVAL ?? "60").trim().toLowerCase();
+    if (raw === "" || raw === "false" || raw === "off") return 0;
+    const minutes = Number(raw);
+    return Number.isFinite(minutes) && minutes > 0 ? Math.max(5, minutes) : 0;
+  },
   get isProduction(): boolean {
     return process.env.NODE_ENV === "production";
   },

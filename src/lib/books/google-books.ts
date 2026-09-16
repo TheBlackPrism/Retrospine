@@ -6,7 +6,9 @@ import type { BookMetadata } from "./types";
  * https://developers.google.com/books/docs/v1/using
  */
 
-const API_BASE = "https://www.googleapis.com/books/v1";
+/** Overridable for tests (`GOOGLE_BOOKS_API_BASE`). */
+const API_BASE =
+  process.env.GOOGLE_BOOKS_API_BASE?.replace(/\/+$/, "") || "https://www.googleapis.com/books/v1";
 /** Google Books answers these intermittently; a short retry usually succeeds. */
 const RETRYABLE_STATUSES = new Set([500, 502, 503, 504]);
 const RETRY_DELAYS_MS = [250, 750];

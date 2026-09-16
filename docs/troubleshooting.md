@@ -16,3 +16,9 @@
 | Container restarts with a migration error | A migration failed halfway | Inspect `docker compose logs app`, fix the database, or set `AUTO_MIGRATE=false` and run `pnpm db:migrate` from a checkout |
 | Covers are blank with a coloured placeholder | The cover host could not be reached from the browser, or Google has no image | Placeholders are generated from the title; nothing to fix |
 | `next build` fails with a database error | A page queries the database before reading request headers | Call `headers()`/`connection()` first; see [development.md](development.md) |
+| Connecting Tolino Cloud fails with "The bookshop rejected the refresh token" | The token was already used (refresh tokens rotate) or expired | Sign in to the web reader again and copy a fresh `refresh_token` from the `token` request |
+| Connecting fails with "blocked the token request from this server" | The bookshop's bot protection rejected the server | Retrospine sends a tolino device user agent; if the shop still blocks the server's IP range, connect from a deployment on another network |
+| Tolino sync ends with "Tolino Cloud sign-in failed" | The refresh token expired, usually because the server was off for more than about ten hours | Open Settings → Tolino Cloud and connect again with a fresh token |
+| A Tolino book is linked to the wrong edition or book | The ISBN or title lookup on Google Books picked another volume | On Settings → Tolino Cloud use *Link to a different book* on that row, or *Don't sync this book* |
+| Tolino sync reports books "waiting for Google Books" | Google Books rate-limited the server during a large import | Set `GOOGLE_BOOKS_API_KEY`; the remaining books are matched on the next run |
+| Automatic Tolino syncs do not happen | `TOLINO_SYNC_INTERVAL=0`, "Sync automatically" is off, or several replicas run the scheduler | Check the variable and the option; run the scheduler on one instance |

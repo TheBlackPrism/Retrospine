@@ -8,6 +8,21 @@ export function formatDate(value: Date | string): string {
   return dateFormatter.format(typeof value === "string" ? new Date(value) : value);
 }
 
+/** "3 minutes ago", "yesterday", or the date for anything older than a week. */
+export function formatRelative(value: Date | string, now: Date = new Date()): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  const seconds = Math.round((now.getTime() - date.getTime()) / 1000);
+  if (seconds < 45) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${pluralize(minutes, "minute")} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${pluralize(hours, "hour")} ago`;
+  const days = Math.round(hours / 24);
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  return formatDate(date);
+}
+
 export function formatYear(published: string | null | undefined): string | null {
   if (!published) return null;
   const match = published.match(/^(\d{4})/);

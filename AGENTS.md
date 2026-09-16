@@ -27,9 +27,10 @@ troubleshooting) before making changes.
 
 - Pages: `src/app/(auth)` (login, setup) and `src/app/(app)` (library, search, books, settings)
 - Data access: `src/lib/library.ts`, `src/lib/books/*`, `src/lib/settings.ts`
+- Tolino Cloud sync: `src/lib/tolino/*` (client, connection storage, sync engine, scheduler started from `src/instrumentation.ts`); see `docs/tolino-sync.md`
 - Mutations: server actions in `src/lib/actions/*` returning `ActionResult`/`FormState`
 - Auth: `src/lib/auth/options.ts` (config), `getAuth()` (lazy instance), `requireSession()`/`requireAdmin()`
-- Pure helpers with unit tests: `src/lib/reading.ts`, `src/lib/books/open-library.ts`, `src/lib/books/google-books.ts`
+- Pure helpers with unit tests: `src/lib/reading.ts`, `src/lib/books/open-library.ts`, `src/lib/books/google-books.ts`, `src/lib/tolino/parse.ts`
 - Release pipeline: `.github/workflows/release-image.yml` builds and publishes the Docker image to GHCR on `*.*.*` tags (see `docs/deployment.md`)
 
 ### Rules of thumb
@@ -40,4 +41,5 @@ troubleshooting) before making changes.
 - Call `headers()`/`connection()` before any database query in code that a page renders, or `next build` will try to reach the database.
 - Use `getAuth()`; call `invalidateAuth()` after changing OIDC settings.
 - Keep the warm design tokens in `src/app/globals.css`; accents use `amber`, headings use `font-heading`.
-- External APIs: Google Books calls go through `src/lib/books/google-books.ts` (country parameter, retries, caching); Open Library through `open-library.ts`.
+- External APIs: Google Books calls go through `src/lib/books/google-books.ts` (country parameter, retries, caching); Open Library through `open-library.ts`; the Tolino Cloud through `src/lib/tolino/client.ts` (tokens are refreshed with a tolino device user agent because the bookshops block generic clients).
+- Milestones written by a sync carry `reading_events.source = 'tolino'`; keep `source` when copying or creating events.

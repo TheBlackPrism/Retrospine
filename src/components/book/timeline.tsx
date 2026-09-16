@@ -14,7 +14,7 @@ import { useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { deleteMilestoneAction } from "@/lib/actions/library";
-import type { ReadingEventType } from "@/lib/db/schema";
+import type { ReadingEventSource, ReadingEventType } from "@/lib/db/schema";
 import { formatDate } from "@/lib/format";
 import { EVENT_LABELS } from "@/lib/shelves";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,7 @@ export type TimelineEvent = {
   page: number | null;
   percent: number | null;
   note: string | null;
+  source?: ReadingEventSource;
 };
 
 const ICONS: Record<ReadingEventType, typeof PlayCircle> = {
@@ -116,6 +117,14 @@ export function Timeline({
                   {EVENT_LABELS[event.type]}
                   {detail ? (
                     <span className="font-normal text-muted-foreground"> · {detail}</span>
+                  ) : null}
+                  {event.source === "tolino" ? (
+                    <span
+                      title="Synced from Tolino Cloud"
+                      className="ml-2 rounded-full bg-amber-soft px-1.5 py-0.5 align-middle text-[10px] font-semibold text-amber-foreground"
+                    >
+                      tolino
+                    </span>
                   ) : null}
                 </p>
                 <time

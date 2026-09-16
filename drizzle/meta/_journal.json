@@ -8,6 +8,13 @@
       "when": 1789571369875,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789586679967,
+      "tag": "0001_tolino_sync",
+      "breakpoints": true
     }
   ]
 }

@@ -8,21 +8,24 @@ import { SettingsSection } from "@/components/settings/section";
 import { SignOutButton } from "@/components/settings/sign-out-button";
 import { SsoCard } from "@/components/settings/sso-card";
 import { ThemeToggle } from "@/components/settings/theme-toggle";
+import { TolinoCard } from "@/components/settings/tolino-card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { getAuth } from "@/lib/auth";
 import { OIDC_PROVIDER_ID } from "@/lib/auth/constants";
 import { isAdmin, requireSession } from "@/lib/auth/session";
 import { getPublicOidcInfo } from "@/lib/settings";
+import { getTolinoConnection, toConnectionView } from "@/lib/tolino/connection";
 
 export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage(props: PageProps<"/settings">) {
   const session = await requireSession();
   const auth = await getAuth();
-  const [accounts, sso, params] = await Promise.all([
+  const [accounts, sso, params, tolino] = await Promise.all([
     auth.api.listUserAccounts({ headers: await headers() }),
     getPublicOidcInfo(),
     props.searchParams,
+    getTolinoConnection(session.user.id),
   ]);
   const linked = accounts.some((account) => account.providerId === OIDC_PROVIDER_ID);
   const hasPassword = accounts.some((account) => account.providerId === "credential");
@@ -59,6 +62,13 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
 
       <SettingsSection title="Appearance" description="Daylight paper or a warm reading lamp.">
         <ThemeToggle />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Tolino Cloud"
+        description="Sync the books and reading progress from your tolino."
+      >
+        <TolinoCard connection={tolino ? toConnectionView(tolino) : null} />
       </SettingsSection>
 
       <SettingsSection

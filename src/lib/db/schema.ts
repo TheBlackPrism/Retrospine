@@ -4,6 +4,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -151,6 +152,12 @@ export const readingEventTypeEnum = pgEnum("reading_event_type", [
   "abandoned",
 ]);
 
+/** Where a milestone came from: entered by hand or imported by a sync. */
+export const readingEventSourceEnum = pgEnum("reading_event_source", [
+  "manual",
+  "tolino",
+]);
+
 export const seriesSourceEnum = pgEnum("series_source", [
   "google",
   "openlibrary",
@@ -272,6 +279,7 @@ export const readingEvents = pgTable(
     page: integer("page"),
     percent: integer("percent"),
     note: text("note"),
+    source: readingEventSourceEnum("source").default("manual").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -282,13 +290,165 @@ export const readingEvents = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/*  Tolino Cloud sync                                                          */
+/* -------------------------------------------------------------------------- */
+
+export const tolinoSyncStatusEnum = pgEnum("tolino_sync_status", [
+  "idle",
+  "running",
+  "ok",
+  "error",
+]);
+
+/** Counters of the last completed sync run, shown in the settings. */
+export type TolinoSyncSummary = {
+  /** Publications seen in the Tolino library. */
+  books: number;
+  /** Publications linked to a book in Retrospine. */
+  matched: number;
+  /** Shelf entries created by this run. */
+  added: number;
+  /** Milestones (progress, started, finished) recorded by this run. */
+  events: number;
+  /** Publications skipped: excluded by the user or failed to record. */
+  skipped: number;
+  /** Publications waiting for a Google Books lookup (rate limit); retried next time. */
+  deferred: number;
+};
+
+/** One Tolino Cloud account per user. Tokens are encrypted with `encryptSecret`. */
+export const tolinoConnections = pgTable(
+  "tolino_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Tolino partner ("reseller") id, e.g. 3 for Thalia.de, 8 for Orell Füssli. */
+    resellerId: integer("reseller_id").notNull(),
+    resellerName: text("reseller_name").notNull(),
+    /** Device id registered with the Tolino Cloud; sent as `hardware_id`. */
+    hardwareId: text("hardware_id").notNull(),
+    /** OAuth token endpoint and client of the bookshop, captured when connecting. */
+    tokenUrl: text("token_url").notNull(),
+    clientId: text("client_id").notNull(),
+    scope: text("scope").notNull(),
+    /** Encrypted; refreshed before it expires. */
+    accessToken: text("access_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", {
+      withTimezone: true,
+    }),
+    /** Encrypted; rotated on every refresh. */
+    refreshToken: text("refresh_token").notNull(),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", {
+      withTimezone: true,
+    }),
+    /** Sync on a schedule, not only when pressing "Sync now". */
+    autoSync: boolean("auto_sync").default(true).notNull(),
+    /** Put books that were never opened on the "Want to read" shelf. */
+    importUnread: boolean("import_unread").default(true).notNull(),
+    /** Also import audiobooks from the Tolino library. */
+    includeAudiobooks: boolean("include_audiobooks").default(false).notNull(),
+    syncStatus: tolinoSyncStatusEnum("sync_status").default("idle").notNull(),
+    syncStartedAt: timestamp("sync_started_at", { withTimezone: true }),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    lastSummary: jsonb("last_summary").$type<TolinoSyncSummary>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [uniqueIndex("tolino_connections_user_idx").on(table.userId)],
+);
+
+export const tolinoBookKindEnum = pgEnum("tolino_book_kind", [
+  "ebook",
+  "upload",
+  "audiobook",
+]);
+
+/** How a Tolino publication was linked to a book in Retrospine. */
+export const tolinoMatchSourceEnum = pgEnum("tolino_match_source", [
+  "isbn",
+  "google",
+  "tolino",
+  "manual",
+]);
+
+/**
+ * A publication in a user's Tolino library together with the reading state
+ * that was last synced, so that repeated syncs only record what changed.
+ */
+export const tolinoBooks = pgTable(
+  "tolino_books",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Tolino publication id, e.g. `DT0400.9783641243609_A40398678`. */
+    publicationId: text("publication_id").notNull(),
+    bookId: uuid("book_id").references(() => books.id, { onDelete: "set null" }),
+    matchSource: tolinoMatchSourceEnum("match_source"),
+    /** Excluded from syncing by the user ("Don't sync this book"). */
+    ignored: boolean("ignored").default(false).notNull(),
+    kind: tolinoBookKindEnum("kind").default("ebook").notNull(),
+    title: text("title").notNull(),
+    subtitle: text("subtitle"),
+    authors: text("authors")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    isbn13: text("isbn13"),
+    publisher: text("publisher"),
+    language: text("language"),
+    coverUrl: text("cover_url"),
+    purchasedAt: timestamp("purchased_at", { withTimezone: true }),
+    /** Reading progress in percent as last seen in the Tolino Cloud. */
+    progress: integer("progress"),
+    progressAt: timestamp("progress_at", { withTimezone: true }),
+    /** Marked as finished in Tolino (system tag) or read to the end. */
+    finished: boolean("finished").default(false).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /** The last sync run in which the publication was present. */
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("tolino_books_user_publication_idx").on(
+      table.userId,
+      table.publicationId,
+    ),
+    index("tolino_books_user_book_idx").on(table.userId, table.bookId),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
 /*  Relations (for the relational query API)                                   */
 /* -------------------------------------------------------------------------- */
 
-export const userRelations = relations(user, ({ many }) => ({
+export const userRelations = relations(user, ({ one, many }) => ({
   sessions: many(session),
   accounts: many(account),
   libraryEntries: many(libraryEntries),
+  tolinoConnection: one(tolinoConnections, {
+    fields: [user.id],
+    references: [tolinoConnections.userId],
+  }),
+  tolinoBooks: many(tolinoBooks),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -324,6 +484,21 @@ export const readingEventsRelations = relations(readingEvents, ({ one }) => ({
   }),
 }));
 
+export const tolinoConnectionsRelations = relations(
+  tolinoConnections,
+  ({ one }) => ({
+    user: one(user, {
+      fields: [tolinoConnections.userId],
+      references: [user.id],
+    }),
+  }),
+);
+
+export const tolinoBooksRelations = relations(tolinoBooks, ({ one }) => ({
+  user: one(user, { fields: [tolinoBooks.userId], references: [user.id] }),
+  book: one(books, { fields: [tolinoBooks.bookId], references: [books.id] }),
+}));
+
 /* -------------------------------------------------------------------------- */
 /*  Inferred types                                                             */
 /* -------------------------------------------------------------------------- */
@@ -338,3 +513,13 @@ export type ReadingEvent = typeof readingEvents.$inferSelect;
 export type ReadingStatus = (typeof readingStatusEnum.enumValues)[number];
 export type ReadingEventType = (typeof readingEventTypeEnum.enumValues)[number];
 export type SeriesSource = (typeof seriesSourceEnum.enumValues)[number];
+export type ReadingEventSource =
+  (typeof readingEventSourceEnum.enumValues)[number];
+export type TolinoConnection = typeof tolinoConnections.$inferSelect;
+export type NewTolinoConnection = typeof tolinoConnections.$inferInsert;
+export type TolinoBook = typeof tolinoBooks.$inferSelect;
+export type NewTolinoBook = typeof tolinoBooks.$inferInsert;
+export type TolinoBookKind = (typeof tolinoBookKindEnum.enumValues)[number];
+export type TolinoMatchSource =
+  (typeof tolinoMatchSourceEnum.enumValues)[number];
+export type TolinoSyncStatus = (typeof tolinoSyncStatusEnum.enumValues)[number];

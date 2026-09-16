@@ -60,6 +60,7 @@ export default async function BookPage(props: PageProps<"/books/[id]">) {
     page: event.page,
     percent: event.percent,
     note: event.note,
+    source: event.source,
   }));
 
   return (
