@@ -45,3 +45,7 @@ next-env.d.ts
 
 # local database data used for development
 /.pgdata
+
+# end-to-end test artefacts
+/e2e/node_modules
+/e2e/shots

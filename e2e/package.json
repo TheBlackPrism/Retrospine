@@ -1,0 +1,14 @@
+{
+  "name": "retrospine-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser smoke test and mock OpenID Connect provider for Retrospine",
+  "scripts": {
+    "mock": "node oidc-mock.mjs",
+    "test": "node smoke.mjs"
+  },
+  "devDependencies": {
+    "oidc-provider": "^9.12.2",
+    "playwright": "^1.63.0"
+  }
+}

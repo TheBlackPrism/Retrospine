@@ -4,13 +4,21 @@ A personal book tracker with a warm, mobile-first interface. Search Google
 Books, keep your shelves (Reading, Want to read, Finished, Set aside), record
 milestones on a timeline, and see where a book sits in its series.
 
+<p align="center">
+  <img src="docs/screenshots/library.png" width="220" alt="Library shelves on a phone">
+  <img src="docs/screenshots/book.png" width="220" alt="Book page with progress and milestones">
+  <img src="docs/screenshots/settings-dark.png" width="220" alt="Settings in the reading-lamp theme">
+</p>
+
 ## Features
 
-- **Shelves** – four reading statuses with animated, cover-first grids.
-- **Search** – Google Books search by title, author or ISBN with one-tap adding.
+- **Shelves** – four reading statuses with animated, cover-first grids and a
+  progress bar for books you are reading.
+- **Search** – Google Books search by title, author or ISBN with one-tap
+  adding to a shelf.
 - **Milestones** – a timeline per book: started, progress (page or percent),
-  notes, finished, set aside. Milestones move the book between shelves and
-  drive the progress bar; re-reads are supported.
+  notes, finished, set aside. Milestones move the book between shelves, drive
+  the progress bar and support re-reads.
 - **Series** – volume number and series name from Google Books, with Open
   Library as a fallback and a manual override. The book page shows the other
   volumes of the same series.
@@ -18,19 +26,20 @@ milestones on a timeline, and see where a book sits in its series.
   fresh install becomes the administrator; afterwards registration is closed
   and the admin invites readers from the settings.
 - **Single sign-on** – any OpenID Connect provider, configured from the
-  settings UI (no restart). Existing local accounts can be connected to SSO
-  from their settings and then sign in either way.
-- **Themes** – cream "daylight" paper and a warm "reading lamp" dark mode.
+  settings UI without a restart. Existing local accounts can be connected to
+  SSO from their settings and then sign in either way.
+- **Themes** – cream "daylight" paper and a warm "reading lamp" dark mode,
+  installable as a web app on phones.
 
 ## Stack
 
-| Layer      | Choice                                                                 |
-| ---------- | ---------------------------------------------------------------------- |
+| Layer      | Choice                                                                   |
+| ---------- | ------------------------------------------------------------------------ |
 | Framework  | Next.js 16 (App Router, Turbopack, server actions), React 19, TypeScript |
-| Styling    | Tailwind CSS v4, shadcn/ui (Radix), Motion, Fraunces + Inter          |
-| Auth       | Better Auth (username, admin and generic OAuth plugins)               |
-| Data       | PostgreSQL 17, Drizzle ORM                                            |
-| Deployment | Docker multi-stage image, docker compose                              |
+| Styling    | Tailwind CSS v4, shadcn/ui (Radix), Motion, Fraunces + Inter             |
+| Auth       | Better Auth (username, admin and generic OAuth plugins)                  |
+| Data       | PostgreSQL 17, Drizzle ORM                                               |
+| Deployment | Docker multi-stage image, docker compose                                 |
 
 ## Run it with Docker
 
@@ -42,11 +51,12 @@ docker compose up -d --build
 
 Open the app (default http://localhost:3000). The first visit shows the setup
 page; the account you create there is the administrator. Database migrations
-run automatically when the container starts (`AUTO_MIGRATE=true`).
+run automatically when the container starts.
 
 `BETTER_AUTH_URL` must be the public URL people use in the browser (for
 example `https://books.example.com`). It is used for OIDC redirect URIs and
-secure cookies.
+secure cookies. See [docs/deployment.md](docs/deployment.md) for reverse
+proxies, backups and upgrades.
 
 ## Local development
 
@@ -58,25 +68,25 @@ pnpm db:migrate                  # apply migrations
 pnpm dev                         # http://localhost:3000
 ```
 
-| Script             | Purpose                                              |
-| ------------------ | ---------------------------------------------------- |
-| `pnpm dev`         | Development server                                   |
-| `pnpm build`       | Production build (standalone output)                 |
-| `pnpm check`       | Lint, type-check and unit tests                      |
+| Script             | Purpose                                                 |
+| ------------------ | ------------------------------------------------------- |
+| `pnpm dev`         | Development server                                      |
+| `pnpm build`       | Production build (standalone output)                    |
+| `pnpm check`       | Lint, type-check and unit tests                         |
 | `pnpm db:generate` | Create a migration after editing `src/lib/db/schema.ts` |
-| `pnpm db:migrate`  | Apply migrations                                     |
-| `pnpm db:studio`   | Browse the database                                  |
+| `pnpm db:migrate`  | Apply migrations                                        |
+| `pnpm db:studio`   | Browse the database                                     |
 
 ## Environment variables
 
-| Variable               | Required | Description                                                     |
-| ---------------------- | -------- | --------------------------------------------------------------- |
-| `DATABASE_URL`         | yes      | Postgres connection string                                      |
-| `BETTER_AUTH_SECRET`   | yes      | Signs sessions and encrypts stored OIDC secrets                 |
-| `BETTER_AUTH_URL`      | yes      | Public base URL of the deployment                               |
-| `GOOGLE_BOOKS_API_KEY` | no       | Raises the Google Books quota; works without one at low volume  |
-| `GOOGLE_BOOKS_COUNTRY` | no       | Country code sent to Google Books (default `US`); avoids 503 answers from unlocatable server IPs |
-| `AUTO_MIGRATE`         | no       | Set to `false` to run `pnpm db:migrate` yourself                |
+| Variable               | Required | Description                                                                                       |
+| ---------------------- | -------- | ------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`         | yes      | Postgres connection string                                                                        |
+| `BETTER_AUTH_SECRET`   | yes      | Signs sessions and encrypts stored OIDC secrets                                                   |
+| `BETTER_AUTH_URL`      | yes      | Public base URL of the deployment                                                                 |
+| `GOOGLE_BOOKS_API_KEY` | no       | Raises the Google Books quota; works without one at low volume                                    |
+| `GOOGLE_BOOKS_COUNTRY` | no       | Country code sent to Google Books (default `US`); avoids 503 answers from unlocatable server IPs   |
+| `AUTO_MIGRATE`         | no       | Set to `false` to run `pnpm db:migrate` yourself                                                  |
 
 ## Configuring single sign-on
 
@@ -91,28 +101,22 @@ pnpm dev                         # http://localhost:3000
 4. Leave **Allow new accounts via SSO** off to keep the instance invite-only;
    turn it on if anyone at your provider may create an account.
 
-The client secret is stored encrypted with a key derived from
-`BETTER_AUTH_SECRET`; rotating that secret requires re-entering it.
+Details, including how identities are matched and what the error messages
+mean, are in [docs/authentication.md](docs/authentication.md).
 
-## Where series data comes from
+## Documentation
 
-1. Google Books sometimes reports a series id and volume number, but not the
-   series name.
-2. Open Library editions (looked up by ISBN) often carry the series name and
-   number, e.g. `Harry Potter, #1`.
-3. Anything missing or wrong can be corrected on the book page; books that
-   share a Google series id are linked automatically once one of them has a
-   name.
-
-Other volumes are found by searching Google Books for the series name and
-author and are merged with the books already in your database.
-
-Google Books allows a modest number of unauthenticated requests per day per
-IP address. Set `GOOGLE_BOOKS_API_KEY` if searches start failing with quota
-errors. Google also answers 503 "Service temporarily unavailable" for some
-server and VPN IP ranges; requests therefore always carry a `country` code
-(`GOOGLE_BOOKS_COUNTRY`, default `US`) and transient failures are retried
-before an error is shown.
+| Page | Contents |
+| --- | --- |
+| [docs/architecture.md](docs/architecture.md) | How the app is put together: request flow, folder map, rendering and caching |
+| [docs/data-model.md](docs/data-model.md) | Tables, relations and how to change the schema |
+| [docs/authentication.md](docs/authentication.md) | Accounts, roles, sessions, OIDC configuration and linking |
+| [docs/books-and-series.md](docs/books-and-series.md) | Search, Google Books client, series resolution, other volumes |
+| [docs/milestones.md](docs/milestones.md) | Shelves, milestone types, status transitions, progress and re-reads |
+| [docs/deployment.md](docs/deployment.md) | Docker image, compose, reverse proxy, migrations, backups, upgrades |
+| [docs/development.md](docs/development.md) | Setup, scripts, conventions, tests, feature checklist |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms, causes and fixes |
+| [e2e/README.md](e2e/README.md) | Browser smoke test with a mock OpenID Connect provider |
 
 ## Project layout
 
@@ -127,4 +131,10 @@ src/lib/db            Drizzle schema, connection, migrations bootstrap
 src/lib/library.ts    shelves and milestones
 src/lib/actions       server actions used by the UI
 drizzle/              SQL migrations
+docs/                 documentation
+e2e/                  end-to-end smoke test
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE).

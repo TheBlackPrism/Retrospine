@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // standalone browser test harness with its own dependencies
+    "e2e/**",
   ]),
 ]);
 

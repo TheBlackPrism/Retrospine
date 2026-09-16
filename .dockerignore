@@ -13,3 +13,5 @@ docker-compose.yml
 *.log
 .vscode
 .idea
+e2e
+docs

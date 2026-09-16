@@ -11,7 +11,7 @@ import { formatPosition } from "@/lib/format";
 import { getShelfCounts, listShelf } from "@/lib/library";
 import { deriveProgress } from "@/lib/reading";
 import { isReadingStatus, STATUS_LABELS } from "@/lib/shelves";
-import { and, eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Library" };
@@ -58,12 +58,9 @@ export default async function LibraryPage(props: PageProps<"/library">) {
   const progressByEntry = new Map<string, number | null>();
   if (shelf === "reading" && entries.length) {
     const events = await db.query.readingEvents.findMany({
-      where: and(
-        inArray(
-          schema.readingEvents.entryId,
-          entries.map((entry) => entry.id),
-        ),
-        eq(schema.readingEvents.type, "progress"),
+      where: inArray(
+        schema.readingEvents.entryId,
+        entries.map((entry) => entry.id),
       ),
     });
     for (const entry of entries) {
