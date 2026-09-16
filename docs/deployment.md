@@ -37,6 +37,13 @@ docker compose logs -f app
 When running the image without compose, pass `DATABASE_URL` directly, e.g.
 `postgres://user:password@host:5432/retrospine`.
 
+The compose file publishes Postgres on port 5432 of the host so that
+`pnpm dev`, `pnpm db:migrate` and `psql` on the same machine can reach it
+(`postgres://retrospine:retrospine@localhost:5432/retrospine`). On a server
+that is reachable from the internet, restrict the mapping to
+`"127.0.0.1:5432:5432"` or remove the `ports` entry of the `db` service; the
+app talks to the database over the compose network and does not need it.
+
 ## Reverse proxy and HTTPS
 
 Put the app behind a TLS-terminating proxy and set `BETTER_AUTH_URL` to the
