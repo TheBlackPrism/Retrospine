@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+.pgdata
+coverage
+Dockerfile
+docker-compose.yml
+.dockerignore
+*.log
+.vscode
+.idea
+e2e
+docs

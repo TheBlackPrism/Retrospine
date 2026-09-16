@@ -1,0 +1,42 @@
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
+
+## Retrospine project guide
+
+Retrospine is a personal book tracker: Next.js 16 App Router, React 19,
+TypeScript, Tailwind v4 + shadcn/ui, Better Auth, Drizzle ORM on PostgreSQL.
+Read `README.md` and the pages in `docs/` (architecture, data model,
+authentication, books and series, milestones, deployment, development,
+troubleshooting) before making changes.
+
+### Commands
+
+- `pnpm dev` – dev server; needs `DATABASE_URL` in `.env` and a migrated database (`pnpm db:migrate`)
+- `pnpm check` – lint, `next typegen` + `tsc`, vitest. Run it before committing.
+- `pnpm build` – must succeed without a database (pages read headers before querying)
+- `pnpm db:generate --name <name>` after editing `src/lib/db/schema.ts`; commit the files in `drizzle/`
+
+### Where things live
+
+- Pages: `src/app/(auth)` (login, setup) and `src/app/(app)` (library, search, books, settings)
+- Data access: `src/lib/library.ts`, `src/lib/books/*`, `src/lib/settings.ts`
+- Mutations: server actions in `src/lib/actions/*` returning `ActionResult`/`FormState`
+- Auth: `src/lib/auth/options.ts` (config), `getAuth()` (lazy instance), `requireSession()`/`requireAdmin()`
+- Pure helpers with unit tests: `src/lib/reading.ts`, `src/lib/books/open-library.ts`, `src/lib/books/google-books.ts`
+
+### Rules of thumb
+
+- Server components by default; `"use client"` only for interactive islands.
+- Never import `@/lib/db` (or anything that imports it) from a client component; shared constants are in `src/lib/shelves.ts`.
+- Every page and action re-validates the session; `src/proxy.ts` is only a cookie check.
+- Call `headers()`/`connection()` before any database query in code that a page renders, or `next build` will try to reach the database.
+- Use `getAuth()`; call `invalidateAuth()` after changing OIDC settings.
+- Keep the warm design tokens in `src/app/globals.css`; accents use `amber`, headings use `font-heading`.
+- External APIs: Google Books calls go through `src/lib/books/google-books.ts` (country parameter, retries, caching); Open Library through `open-library.ts`.
