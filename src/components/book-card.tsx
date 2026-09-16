@@ -41,7 +41,7 @@ export function BookCard({
             priority={priority}
           />
           {badge ? (
-            <span className="absolute top-1.5 left-1.5 rounded-md bg-background/90 px-1.5 py-0.5 text-[10px] font-semibold text-foreground shadow-sm backdrop-blur">
+            <span className="absolute top-1.5 right-1.5 rounded-md bg-background/90 px-1.5 py-0.5 text-[10px] font-semibold text-foreground shadow-sm backdrop-blur">
               {badge}
             </span>
           ) : null}
