@@ -50,23 +50,36 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       setPhase("loading");
-      try {
-        const response = await fetch(
-          `/api/books/search?q=${encodeURIComponent(trimmed)}`,
-          { signal: controller.signal },
-        );
-        const data = (await response.json()) as {
-          items?: SearchResult[];
-          error?: string;
-        };
-        if (!response.ok) throw new Error(data.error ?? "The search failed.");
-        setResults(data.items ?? []);
-        setError(null);
-        setPhase("done");
-      } catch (caught) {
-        if (controller.signal.aborted) return;
-        setError(caught instanceof Error ? caught.message : "The search failed.");
-        setPhase("error");
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await fetch(
+            `/api/books/search?q=${encodeURIComponent(trimmed)}`,
+            { signal: controller.signal },
+          );
+          const data = (await response.json()) as {
+            items?: SearchResult[];
+            error?: string;
+            transient?: boolean;
+          };
+          if (!response.ok) {
+            // Google Books hiccups are common; give it one more chance.
+            if (response.status === 503 && data.transient && attempt === 0) {
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+              if (controller.signal.aborted) return;
+              continue;
+            }
+            throw new Error(data.error ?? "The search failed.");
+          }
+          setResults(data.items ?? []);
+          setError(null);
+          setPhase("done");
+          return;
+        } catch (caught) {
+          if (controller.signal.aborted) return;
+          setError(caught instanceof Error ? caught.message : "The search failed.");
+          setPhase("error");
+          return;
+        }
       }
     }, 350);
 

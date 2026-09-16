@@ -75,6 +75,7 @@ pnpm dev                         # http://localhost:3000
 | `BETTER_AUTH_SECRET`   | yes      | Signs sessions and encrypts stored OIDC secrets                 |
 | `BETTER_AUTH_URL`      | yes      | Public base URL of the deployment                               |
 | `GOOGLE_BOOKS_API_KEY` | no       | Raises the Google Books quota; works without one at low volume  |
+| `GOOGLE_BOOKS_COUNTRY` | no       | Country code sent to Google Books (default `US`); avoids 503 answers from unlocatable server IPs |
 | `AUTO_MIGRATE`         | no       | Set to `false` to run `pnpm db:migrate` yourself                |
 
 ## Configuring single sign-on
@@ -107,7 +108,11 @@ Other volumes are found by searching Google Books for the series name and
 author and are merged with the books already in your database.
 
 Google Books allows a modest number of unauthenticated requests per day per
-IP address. Set `GOOGLE_BOOKS_API_KEY` if searches start failing.
+IP address. Set `GOOGLE_BOOKS_API_KEY` if searches start failing with quota
+errors. Google also answers 503 "Service temporarily unavailable" for some
+server and VPN IP ranges; requests therefore always carry a `country` code
+(`GOOGLE_BOOKS_COUNTRY`, default `US`) and transient failures are retried
+before an error is shown.
 
 ## Project layout
 

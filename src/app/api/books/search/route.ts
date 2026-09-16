@@ -57,6 +57,17 @@ export async function GET(request: Request) {
         { status: 503 },
       );
     }
+    if (error instanceof GoogleBooksError && error.isTransient) {
+      console.warn("[search] Google Books unavailable", error.message);
+      return Response.json(
+        {
+          error:
+            "Google Books is temporarily unavailable. Please try again in a moment.",
+          transient: true,
+        },
+        { status: 503 },
+      );
+    }
     console.error("[search] failed", error);
     return Response.json(
       { error: "The search failed. Please try again." },

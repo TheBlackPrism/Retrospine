@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  GoogleBooksError,
   normalizeCoverUrl,
   normalizeVolume,
+  searchVolumes,
   type GoogleVolume,
 } from "../google-books";
 
@@ -78,5 +80,68 @@ describe("normalizeCoverUrl", () => {
   it("returns null for missing or invalid input", () => {
     expect(normalizeCoverUrl(undefined)).toBeNull();
     expect(normalizeCoverUrl("not a url")).toBeNull();
+  });
+});
+
+describe("searchVolumes", () => {
+  const jsonResponse = (body: unknown, status: number) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  const unavailable = () =>
+    jsonResponse({ error: { code: 503, message: "Service temporarily unavailable." } }, 503);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.GOOGLE_BOOKS_COUNTRY;
+  });
+
+  it("retries a transient failure and sends the configured country", async () => {
+    process.env.GOOGLE_BOOKS_COUNTRY = "ch";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(unavailable())
+      .mockResolvedValueOnce(jsonResponse({ totalItems: 1, items: [fixture] }, 200));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await searchVolumes("equal rites");
+
+    expect(result.items).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.searchParams.get("q")).toBe("equal rites");
+    expect(url.searchParams.get("country")).toBe("CH");
+  });
+
+  it("defaults the country to US", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ totalItems: 0, items: [] }, 200));
+    vi.stubGlobal("fetch", fetchMock);
+    await searchVolumes("dune");
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.searchParams.get("country")).toBe("US");
+  });
+
+  it("gives up after repeated outages and flags the error as transient", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(unavailable()));
+    vi.stubGlobal("fetch", fetchMock);
+    const error = await searchVolumes("dune").catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GoogleBooksError);
+    expect((error as GoogleBooksError).isTransient).toBe(true);
+    expect((error as GoogleBooksError).status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry quota errors", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ error: { code: 429, message: "Quota exceeded" } }, 429));
+    vi.stubGlobal("fetch", fetchMock);
+    const error = await searchVolumes("dune").catch((caught: unknown) => caught);
+    expect((error as GoogleBooksError).isQuotaExceeded).toBe(true);
+    expect((error as GoogleBooksError).isTransient).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

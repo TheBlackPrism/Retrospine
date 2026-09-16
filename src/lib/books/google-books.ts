@@ -7,6 +7,9 @@ import type { BookMetadata } from "./types";
  */
 
 const API_BASE = "https://www.googleapis.com/books/v1";
+/** Google Books answers these intermittently; a short retry usually succeeds. */
+const RETRYABLE_STATUSES = new Set([500, 502, 503, 504]);
+const RETRY_DELAYS_MS = [250, 750];
 const VOLUME_FIELDS =
   "id,volumeInfo(title,subtitle,authors,publisher,publishedDate,description,industryIdentifiers,pageCount,categories,imageLinks,language,seriesInfo)";
 
@@ -56,6 +59,11 @@ export class GoogleBooksError extends Error {
   get isQuotaExceeded(): boolean {
     return this.status === 429 || this.status === 403;
   }
+
+  /** A hiccup on Google's side; worth trying again shortly. */
+  get isTransient(): boolean {
+    return RETRYABLE_STATUSES.has(this.status);
+  }
 }
 
 function buildUrl(path: string, params: Record<string, string | number>) {
@@ -63,17 +71,25 @@ function buildUrl(path: string, params: Record<string, string | number>) {
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, String(value));
   }
+  url.searchParams.set("country", env.googleBooksCountry);
   const apiKey = env.googleBooksApiKey;
   if (apiKey) url.searchParams.set("key", apiKey);
   return url;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function request<T>(url: URL, revalidateSeconds: number): Promise<T> {
-  const response = await fetch(url, {
-    headers: { Accept: "application/json" },
-    next: { revalidate: revalidateSeconds },
-  });
-  if (!response.ok) {
+  let lastError: GoogleBooksError | null = null;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1]);
+    // Next only caches 200 responses, so a failed attempt is never replayed.
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      next: { revalidate: revalidateSeconds },
+    });
+    if (response.ok) return (await response.json()) as T;
+
     let message = `Google Books request failed with status ${response.status}`;
     try {
       const body = (await response.json()) as { error?: { message?: string } };
@@ -81,9 +97,10 @@ async function request<T>(url: URL, revalidateSeconds: number): Promise<T> {
     } catch {
       // ignore unparsable error bodies
     }
-    throw new GoogleBooksError(message, response.status);
+    lastError = new GoogleBooksError(message, response.status);
+    if (!lastError.isTransient) break;
   }
-  return (await response.json()) as T;
+  throw lastError ?? new GoogleBooksError("Google Books request failed", 500);
 }
 
 /**

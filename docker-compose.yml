@@ -32,6 +32,7 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env (openssl rand -base64 32)}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
       GOOGLE_BOOKS_API_KEY: ${GOOGLE_BOOKS_API_KEY:-}
+      GOOGLE_BOOKS_COUNTRY: ${GOOGLE_BOOKS_COUNTRY:-}
       AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
 
 volumes:

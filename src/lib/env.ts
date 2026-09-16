@@ -30,6 +30,14 @@ export const env = {
   get googleBooksApiKey(): string | undefined {
     return process.env.GOOGLE_BOOKS_API_KEY || undefined;
   },
+  /**
+   * ISO 3166-1 country code sent with Google Books requests. Google answers
+   * 503 "Service temporarily unavailable" for IP ranges it cannot geolocate
+   * (typical for cloud servers and VPNs); an explicit country avoids that.
+   */
+  get googleBooksCountry(): string {
+    return process.env.GOOGLE_BOOKS_COUNTRY?.trim().toUpperCase() || "US";
+  },
   get autoMigrate(): boolean {
     return (process.env.AUTO_MIGRATE ?? "true").toLowerCase() !== "false";
   },
