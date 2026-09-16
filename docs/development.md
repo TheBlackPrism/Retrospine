@@ -66,6 +66,25 @@ The first visit shows the setup page; the account you create is the admin.
   shelves, milestones, user administration and the complete OIDC flow
   against a mock provider. See [`e2e/README.md`](../e2e/README.md).
 
+## Releasing
+
+1. Bump `version` in `package.json`, run `pnpm check`, and commit on `main`.
+2. Tag the commit with a semantic version and push the tag (creating a GitHub
+   release for a new tag does the same):
+
+   ```bash
+   git tag v1.2.3
+   git push origin v1.2.3
+   ```
+
+3. The `Release image` workflow (`.github/workflows/release-image.yml`)
+   builds the image for amd64 and arm64, smoke-tests it and publishes it as
+   `ghcr.io/theblackprism/retrospine:1.2.3` (plus `1.2`, `1` and `latest`).
+   See [deployment.md](deployment.md#published-images) for the tags and for
+   making the package public after the first release.
+4. Pre-releases (`v1.3.0-rc.1`) are built the same way but only receive their
+   own version tag, so `latest` keeps pointing at the last stable release.
+
 ## Adding a feature: checklist
 
 1. Schema change? Edit `src/lib/db/schema.ts`, run `pnpm db:generate`,

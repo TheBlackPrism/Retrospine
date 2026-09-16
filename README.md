@@ -39,7 +39,7 @@ milestones on a timeline, and see where a book sits in its series.
 | Styling    | Tailwind CSS v4, shadcn/ui (Radix), Motion, Fraunces + Inter             |
 | Auth       | Better Auth (username, admin and generic OAuth plugins)                  |
 | Data       | PostgreSQL 17, Drizzle ORM                                               |
-| Deployment | Docker multi-stage image, docker compose                                 |
+| Deployment | Docker multi-stage image, docker compose, GHCR images per release        |
 
 ## Run it with Docker
 
@@ -52,6 +52,11 @@ docker compose up -d --build
 Open the app (default http://localhost:3000). The first visit shows the setup
 page; the account you create there is the administrator. Database migrations
 run automatically when the container starts.
+
+Every release is also published as a ready-built image for amd64 and arm64,
+`ghcr.io/theblackprism/retrospine` (tags `latest`, `1.2.3`, `1.2`, `1`). The
+compose file already names it, so `docker compose pull app && docker compose
+up -d` runs the published build instead of compiling on the server.
 
 `BETTER_AUTH_URL` must be the public URL people use in the browser (for
 example `https://books.example.com`). It is used for OIDC redirect URIs and

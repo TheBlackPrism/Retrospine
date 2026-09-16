@@ -30,6 +30,7 @@ troubleshooting) before making changes.
 - Mutations: server actions in `src/lib/actions/*` returning `ActionResult`/`FormState`
 - Auth: `src/lib/auth/options.ts` (config), `getAuth()` (lazy instance), `requireSession()`/`requireAdmin()`
 - Pure helpers with unit tests: `src/lib/reading.ts`, `src/lib/books/open-library.ts`, `src/lib/books/google-books.ts`
+- Release pipeline: `.github/workflows/release-image.yml` builds and publishes the Docker image to GHCR on `v*.*.*` tags (see `docs/deployment.md`)
 
 ### Rules of thumb
 

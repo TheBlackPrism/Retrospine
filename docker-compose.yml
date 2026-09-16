@@ -21,8 +21,10 @@ services:
       retries: 12
 
   app:
+    # `docker compose up --build` builds this image from the checkout;
+    # `docker compose pull app` fetches the published release instead.
     build: .
-    image: retrospine:latest
+    image: ghcr.io/theblackprism/retrospine:latest
     restart: unless-stopped
     depends_on:
       db:
