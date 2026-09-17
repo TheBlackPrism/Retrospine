@@ -69,12 +69,12 @@ The first visit shows the setup page; the account you create is the admin.
 ## Releasing
 
 1. Bump `version` in `package.json`, run `pnpm check`, and commit on `main`.
-2. Tag the commit with a semantic version and push the tag (creating a GitHub
-   release for a new tag does the same):
+2. Tag the commit with a semantic version, with or without a leading `v`, and
+   push the tag (creating a GitHub release for a new tag does the same):
 
    ```bash
-   git tag v1.2.3
-   git push origin v1.2.3
+   git tag 1.2.3
+   git push origin 1.2.3
    ```
 
 3. The `Release image` workflow (`.github/workflows/release-image.yml`)
@@ -82,7 +82,7 @@ The first visit shows the setup page; the account you create is the admin.
    `ghcr.io/theblackprism/retrospine:1.2.3` (plus `1.2`, `1` and `latest`).
    See [deployment.md](deployment.md#published-images) for the tags and for
    making the package public after the first release.
-4. Pre-releases (`v1.3.0-rc.1`) are built the same way but only receive their
+4. Pre-releases (`1.3.0-rc.1`) are built the same way but only receive their
    own version tag, so `latest` keeps pointing at the last stable release.
 
 ## Adding a feature: checklist
