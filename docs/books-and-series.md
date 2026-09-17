@@ -8,7 +8,8 @@ by 350 ms and calls `/api/books/search?q=…`. The route
 
 1. requires a session,
 2. queries Google Books (`searchVolumes` in `src/lib/books/google-books.ts`,
-   40 results, `printType=books`),
+   40 results requested, `printType=books`; Google currently answers with at
+   most 20 volumes per request),
 3. collapses the editions of each work into one result (see below),
 4. joins the results with books already in the database and the current
    user's shelf entries, so results that are already on a shelf show their
@@ -25,12 +26,17 @@ with the same book. `collapseEditions` (`src/lib/books/editions.ts`) groups
 the results by a title key plus the first author's surname, because Google
 has no work identifier:
 
-- `workTitleKey` lower-cases the title, strips accents and punctuation,
-  bracketed asides (`(Red Rising Series Book 1)`) and volume markers
-  (`Book 1`, `Vol. 2`, `#3`), and drops a subtitle when it only describes
-  the edition or the series (`A Novel`, `Book 2 of the Red Rising Saga`).
-  Subtitles that name a different book are kept, so `Dune: House Atreides`
-  and `Dune: House Harkonnen` stay apart, as do box sets and graphic novels.
+- `workTitleKey` lower-cases the title (Google's separate subtitle field
+  counts as a colon subtitle), strips accents and punctuation, bracketed
+  asides (`(Red Rising Series Book 1)`) and volume markers (`Book 1`,
+  `Vol. 2`, `#3`), and drops a subtitle when it only describes the form
+  (`A Novel`, `Roman`), the series (`Book 2 of the Red Rising Saga`,
+  `Mistborn Book One`, `A Red Rising Novel`) or the printing (`Deluxe
+  Edition`, `Ravenclaw Edition`). Subtitles that name a different book are
+  kept, so `Dune: House Atreides` and `Dune: House Harkonnen` stay apart
+  from `Dune`, as do box sets and graphic novels. An issue number inside
+  such a name is dropped (`Sons of Ares #3`, `House Atreides Vol. 1`), so
+  the issues of a comic fold into its first volume.
 - Within a group the edition in the reader's preferred language ranks first
   (an edition of unknown language ranks between a match and a mismatch),
   then the one with a cover, an ISBN, series information, a description and
@@ -38,11 +44,19 @@ has no work identifier:
   which they first appeared.
 - A book the reader already has on a shelf represents its group whatever its
   language, so the result shows the shelf status.
-- The series reference is pooled: the group carries the Google series id and
-  volume number of the best edition that reports one, so the main result
-  shows "Book 1 of …" even when the shown edition lacks the information. The
-  name appears once a stored series carries the id (Google never names a
-  series).
+- The series reference is pooled: the group carries the Google series id of
+  the best edition that reports one and the lowest volume number reported
+  for that series (the issues of a comic fold into their volume), so the
+  main result shows "Book 1 of …" even when the shown edition lacks the
+  information. The name appears once a stored series carries the id (Google
+  never names a series).
+
+Titles are all Google offers, so some editions of a work stay apart:
+translations with a title of their own (`Red Rising 2 - Gylden søn`),
+series-prefixed titles (`Red Rising 3. Morning Star`), swapped title and
+subtitle (`The Secret Commonwealth: The Book of Dust Volume Two` next to
+`The Book of Dust: The Secret Commonwealth`) and imprint names in the
+subtitle (`Red Rising: Hodderscape Vault`).
 
 The response reports how many editions were merged and the language of the
 shown edition; the page mentions the language only when it differs from the

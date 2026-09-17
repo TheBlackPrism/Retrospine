@@ -8,8 +8,9 @@ import { db, schema } from "@/lib/db";
 import { languageFromAcceptHeader, normalizeLanguage } from "@/lib/languages";
 
 /**
- * Google lists every edition it knows (hardcover, paperback, translations);
- * asking for the maximum leaves enough distinct works after collapsing them.
+ * Google lists every edition it knows (hardcover, paperback, translations),
+ * so the maximum is requested; Google currently answers with at most 20
+ * volumes per request whatever `maxResults` says.
  */
 const GOOGLE_RESULTS = 40;
 
