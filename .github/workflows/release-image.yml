@@ -1,0 +1,236 @@
+# Builds the Docker image for every release tag (v1.2.3) and publishes it to
+# the GitHub Container Registry as ghcr.io/theblackprism/retrospine.
+#
+# 1. build:      each platform is built natively on its own runner (no QEMU)
+#                and pushed to the registry by digest, without a tag.
+# 2. smoke-test: the amd64 image is started against a throwaway Postgres and
+#                must answer GET /api/health, which proves that the server
+#                boots, applies its migrations and reaches the database.
+# 3. publish:    the platform images are combined into one multi-arch
+#                manifest tagged 1.2.3, 1.2, 1 and latest.
+#
+# See docs/deployment.md ("Published images") and docs/development.md
+# ("Releasing").
+name: Release image
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  # Registry names must be lowercase; ${{ github.repository }} is not.
+  IMAGE_NAME: theblackprism/retrospine
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Platform slug
+        id: platform
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: echo "slug=${PLATFORM//\//-}" >> "$GITHUB_OUTPUT"
+
+      - name: Image labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ steps.platform.outputs.slug }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  smoke-test:
+    name: Smoke test linux/amd64
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: retrospine
+          POSTGRES_PASSWORD: retrospine
+          POSTGRES_DB: retrospine
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U retrospine -d retrospine"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Download amd64 digest
+        uses: actions/download-artifact@v8
+        with:
+          name: digest-linux-amd64
+          path: ${{ runner.temp }}/digests
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Start the image
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        run: |
+          shopt -s nullglob
+          digests=(*)
+          if [ "${#digests[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one digest file, found: ${digests[*]:-none}"
+            exit 1
+          fi
+          # The Postgres service publishes 5432 on the runner, so the container
+          # joins the host network to reach it and to expose port 3000 to curl.
+          docker run --detach --name retrospine --network host \
+            --env DATABASE_URL=postgres://retrospine:retrospine@127.0.0.1:5432/retrospine \
+            --env BETTER_AUTH_SECRET=smoke-test-secret-that-is-never-used-anywhere-else \
+            --env BETTER_AUTH_URL=http://127.0.0.1:3000 \
+            "$IMAGE@sha256:${digests[0]}"
+
+      - name: Wait for /api/health
+        run: |
+          for attempt in $(seq 1 45); do
+            if body=$(curl --fail --silent http://127.0.0.1:3000/api/health); then
+              echo "GET /api/health answered $body after $attempt attempt(s)."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::/api/health did not answer 200 within 90 seconds"
+          exit 1
+
+      - name: Container logs
+        if: always()
+        run: docker logs retrospine 2>&1 || true
+
+  publish:
+    name: Publish multi-arch manifest
+    needs: [build, smoke-test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@v6
+        env:
+          # Annotate the manifest list itself; the platform images already
+          # carry the same information as labels.
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # v1.2.3 -> 1.2.3, 1.2, 1 and latest. Pre-releases (v1.3.0-rc.1) only
+          # get their own version tag, and 0.x releases do not get a "0" tag.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          ANNOTATIONS: ${{ steps.meta.outputs.annotations }}
+        run: |
+          args=()
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then args+=(--tag "$tag"); fi
+          done <<< "$TAGS"
+          while IFS= read -r annotation; do
+            if [ -n "$annotation" ]; then args+=(--annotation "$annotation"); fi
+          done <<< "$ANNOTATIONS"
+          for digest in *; do
+            args+=("$IMAGE@sha256:$digest")
+          done
+          docker buildx imagetools create "${args[@]}"
+
+      - name: Inspect published image
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: docker buildx imagetools inspect "$IMAGE:$VERSION"

@@ -13,6 +13,45 @@ The `Dockerfile` builds in three stages:
 
 Build it with `docker build -t retrospine .` or let compose do it.
 
+## Published images
+
+Pushing a release tag (`v1.2.3`) runs the `Release image` workflow in
+`.github/workflows/release-image.yml`. It builds the image natively for
+`linux/amd64` and `linux/arm64`, starts the amd64 image against a throwaway
+Postgres until `/api/health` answers, and then publishes one multi-arch
+manifest to the GitHub Container Registry:
+
+| Tag | Points at |
+| --- | --- |
+| `ghcr.io/theblackprism/retrospine:1.2.3` | exactly this release |
+| `ghcr.io/theblackprism/retrospine:1.2` | the newest patch release of 1.2 |
+| `ghcr.io/theblackprism/retrospine:1` | the newest 1.x release (no `0` tag while the major version is 0) |
+| `ghcr.io/theblackprism/retrospine:latest` | the newest release; pre-releases such as `v1.3.0-rc.1` only get their own version tag |
+
+`docker-compose.yml` names the `app` image `ghcr.io/theblackprism/retrospine:latest`:
+
+```bash
+docker compose pull app    # fetch the published image
+docker compose up -d       # run it
+```
+
+`docker compose up -d --build` still builds from the checkout and overwrites
+that local tag. To pin a version, set `image: ghcr.io/theblackprism/retrospine:1.2.3`
+on the `app` service. Without compose:
+
+```bash
+docker run -d -p 3000:3000 \
+  -e DATABASE_URL=postgres://user:password@host:5432/retrospine \
+  -e BETTER_AUTH_SECRET=... -e BETTER_AUTH_URL=https://books.example.com \
+  ghcr.io/theblackprism/retrospine:1.2.3
+```
+
+GitHub creates the package as *private* the first time the workflow pushes
+to it. Open the package on GitHub (**Packages** on the repository page →
+**Package settings** → **Danger Zone** → **Change visibility** → Public) once
+so that servers can pull it without a token; until then `docker login ghcr.io`
+with a personal access token that has `read:packages` is required.
+
 ## docker compose
 
 `docker-compose.yml` runs Postgres 17 (with a named volume and a health
@@ -83,6 +122,15 @@ Cover images are not stored; they are loaded from Google Books and Open
 Library at view time.
 
 ## Upgrading
+
+With the published image:
+
+```bash
+docker compose pull app
+docker compose up -d
+```
+
+From a checkout:
 
 ```bash
 git pull

@@ -15,3 +15,4 @@ docker-compose.yml
 .idea
 e2e
 docs
+.github
