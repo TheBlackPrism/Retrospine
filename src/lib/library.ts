@@ -1,6 +1,7 @@
 import { and, count, desc, eq } from "drizzle-orm";
+import type { GoogleSeriesRef } from "@/lib/books/editions";
 import { getVolume } from "@/lib/books/google-books";
-import { applyDiscoveredSeries, discoverSeries } from "@/lib/books/series";
+import { adoptGoogleSeries, applyDiscoveredSeries, discoverSeries } from "@/lib/books/series";
 import type { BookMetadata } from "@/lib/books/types";
 import { db, schema } from "@/lib/db";
 import type {
@@ -65,15 +66,27 @@ export async function findBookByGoogleId(
   return book ?? null;
 }
 
-/** Stores a Google Books volume locally (idempotent) and resolves its series. */
+/**
+ * Stores a Google Books volume locally (idempotent) and resolves its series.
+ * `series` is the Google series reference pooled from other editions of the
+ * work by the search; it fills in for volumes that do not carry their own.
+ */
 export async function findOrCreateBookByGoogleId(
   googleId: string,
+  options: { series?: GoogleSeriesRef | null } = {},
 ): Promise<BookWithSeries> {
+  const hint = options.series ?? null;
   const existing = await findBookByGoogleId(googleId);
-  if (existing) return existing;
+  if (existing) {
+    if (!hint || existing.googleSeriesId) return existing;
+    await adoptGoogleSeries(existing, hint);
+    return (await getBook(existing.id)) ?? existing;
+  }
   const meta = await getVolume(googleId);
   if (!meta) throw new Error("This book could not be found on Google Books.");
-  return createBookFromMetadata(meta);
+  return createBookFromMetadata(
+    hint && !meta.googleSeries ? { ...meta, googleSeries: hint } : meta,
+  );
 }
 
 export async function createBookFromMetadata(

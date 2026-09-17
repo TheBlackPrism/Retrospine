@@ -21,12 +21,14 @@ erDiagram
 ## Authentication tables
 
 These follow Better Auth's core schema plus the fields added by the
-`username` and `admin` plugins. Keep them in sync when upgrading Better Auth
-(`npx @better-auth/cli generate` prints the expected shape).
+`username` and `admin` plugins and `preferred_language`, which Retrospine
+declares as an additional user field in `src/lib/auth/options.ts`. Keep them
+in sync when upgrading Better Auth (`npx @better-auth/cli generate` prints
+the expected shape).
 
 | Table | Notable columns |
 | --- | --- |
-| `user` | `name`, `email` (unique), `email_verified`, `image`, `username` (unique, normalized lower-case), `display_username`, `role` (`admin` or `user`), `banned`, `ban_reason`, `ban_expires` |
+| `user` | `name`, `email` (unique), `email_verified`, `image`, `username` (unique, normalized lower-case), `display_username`, `role` (`admin` or `user`), `banned`, `ban_reason`, `ban_expires`, `preferred_language` (ISO 639-1 code preferred for search results; null follows the browser) |
 | `session` | `token` (unique), `expires_at`, `ip_address`, `user_agent`, `user_id`, `impersonated_by` |
 | `account` | one row per sign-in method: `provider_id` is `credential` for passwords or `oidc` for single sign-on; `account_id` is the user id or the provider subject; OAuth tokens and the password hash live here |
 | `verification` | short-lived tokens used by Better Auth flows |

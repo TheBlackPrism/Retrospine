@@ -30,7 +30,7 @@ troubleshooting) before making changes.
 - Tolino Cloud sync: `src/lib/tolino/*` (client, connection storage, sync engine, scheduler started from `src/instrumentation.ts`; `browser.ts` and `tolino/token-keeper.tsx` renew tokens from the reader's browser when a bookshop blocks the server); see `docs/tolino-sync.md`
 - Mutations: server actions in `src/lib/actions/*` returning `ActionResult`/`FormState`
 - Auth: `src/lib/auth/options.ts` (config), `getAuth()` (lazy instance), `requireSession()`/`requireAdmin()`
-- Pure helpers with unit tests: `src/lib/reading.ts`, `src/lib/books/open-library.ts`, `src/lib/books/google-books.ts`, `src/lib/tolino/parse.ts`
+- Pure helpers with unit tests: `src/lib/reading.ts`, `src/lib/books/open-library.ts`, `src/lib/books/google-books.ts`, `src/lib/books/editions.ts` (one search result per work), `src/lib/languages.ts` (preferred language), `src/lib/tolino/parse.ts`
 - Release pipeline: `.github/workflows/release-image.yml` builds and publishes the Docker image to GHCR on `*.*.*` tags (see `docs/deployment.md`)
 
 ### Rules of thumb
@@ -43,3 +43,4 @@ troubleshooting) before making changes.
 - Keep the warm design tokens in `src/app/globals.css`; accents use `amber`, headings use `font-heading`.
 - External APIs: Google Books calls go through `src/lib/books/google-books.ts` (country parameter, retries, caching); Open Library through `open-library.ts`; the Tolino Cloud through `src/lib/tolino/client.ts`. The Thalia group shops (Thalia, Orell Füssli, Osiander) block non-browser clients (Cloudflare) and route their token endpoint by `Origin`, so Retrospine cannot exchange a refresh token for them; the connect form reuses the access token the web reader already obtained (`extractTokenResponse`). Other resellers may allow a server or browser exchange. Every `api.pageplace.de` request falls back to its BOSH counterpart.
 - Milestones written by a sync carry `reading_events.source = 'tolino'`; keep `source` when copying or creating events.
+- Search results are one per work (`collapseEditions`), preferring the reader's `preferredLanguage` (a Better Auth additional user field, falling back to `Accept-Language`). Pass the pooled `series` reference to `findOrCreateBookByGoogleId` when importing from a search result so the stored book keeps it.

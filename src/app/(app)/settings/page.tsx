@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { getAuth } from "@/lib/auth";
 import { OIDC_PROVIDER_ID } from "@/lib/auth/constants";
 import { isAdmin, requireSession } from "@/lib/auth/session";
+import { languageFromAcceptHeader } from "@/lib/languages";
 import { getPublicOidcInfo } from "@/lib/settings";
 import { getTolinoConnection, toConnectionView } from "@/lib/tolino/connection";
 
@@ -21,8 +22,9 @@ export const metadata: Metadata = { title: "Settings" };
 export default async function SettingsPage(props: PageProps<"/settings">) {
   const session = await requireSession();
   const auth = await getAuth();
+  const requestHeaders = await headers();
   const [accounts, sso, params, tolino] = await Promise.all([
-    auth.api.listUserAccounts({ headers: await headers() }),
+    auth.api.listUserAccounts({ headers: requestHeaders }),
     getPublicOidcInfo(),
     props.searchParams,
     getTolinoConnection(session.user.id),
@@ -57,6 +59,8 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
           name={session.user.name}
           username={session.user.username ?? null}
           email={session.user.email}
+          preferredLanguage={session.user.preferredLanguage ?? null}
+          browserLanguage={languageFromAcceptHeader(requestHeaders.get("accept-language"))}
         />
       </SettingsSection>
 

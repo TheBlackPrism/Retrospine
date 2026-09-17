@@ -7,6 +7,7 @@ import { getAuth, invalidateAuth } from "@/lib/auth";
 import { OIDC_PROVIDER_ID } from "@/lib/auth/constants";
 import { requireAdmin, requireSession } from "@/lib/auth/session";
 import { errorMessage } from "@/lib/errors";
+import { AUTOMATIC_LANGUAGE, isLanguageCode, normalizeLanguage } from "@/lib/languages";
 import { getAppSettings, saveOidcSettings, toDiscoveryUrl } from "@/lib/settings";
 import type { ActionResult, FormState } from "./state";
 
@@ -36,6 +37,11 @@ const profileSchema = z.object({
     .min(3, "Usernames need at least 3 characters")
     .max(32)
     .regex(/^[a-z0-9_.-]+$/i, "Only letters, numbers, dots, dashes and underscores"),
+  preferredLanguage: z
+    .string()
+    .max(16)
+    .transform((value) => (value === AUTOMATIC_LANGUAGE ? "" : normalizeLanguage(value) ?? value))
+    .refine((value) => !value || isLanguageCode(value), "Choose a language from the list"),
 });
 
 export async function updateProfileAction(
@@ -46,11 +52,15 @@ export async function updateProfileAction(
   const parsed = profileSchema.safeParse({
     name: field(formData, "name"),
     username: field(formData, "username"),
+    preferredLanguage: field(formData, "preferredLanguage"),
   });
   if (!parsed.success) return { status: "error", message: firstIssue(parsed.error) };
   try {
     const auth = await getAuth();
-    const body: { name: string; username?: string } = { name: parsed.data.name };
+    const body: { name: string; username?: string; preferredLanguage: string | null } = {
+      name: parsed.data.name,
+      preferredLanguage: parsed.data.preferredLanguage || null,
+    };
     if (parsed.data.username.toLowerCase() !== session.user.username) {
       body.username = parsed.data.username;
     }

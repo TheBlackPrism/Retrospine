@@ -1,6 +1,7 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { Book, ReadingStatus, Series } from "@/lib/db/schema";
+import type { GoogleSeriesRef } from "./editions";
 import { quoteQueryTerm, searchVolumes } from "./google-books";
 import { fetchEditionByIsbn, pickSeries, type ParsedSeries } from "./open-library";
 import type { BookMetadata, SeriesHint } from "./types";
@@ -163,6 +164,51 @@ export async function applyDiscoveredSeries(
   if (hint.googleSeriesId) {
     await linkSiblingsByGoogleId(seriesRow.id, hint.googleSeriesId);
   }
+}
+
+/**
+ * Stores a Google series id learned from another edition of the same work on
+ * a book that has none. The book joins a series that already carries the id;
+ * a series the book already belongs to learns the id instead, so that other
+ * volumes can be linked by it. Nothing changes for books that know their id.
+ */
+export async function adoptGoogleSeries(
+  book: Pick<Book, "id" | "seriesId" | "seriesPosition" | "seriesSource" | "googleSeriesId">,
+  ref: GoogleSeriesRef,
+): Promise<void> {
+  if (book.googleSeriesId) return;
+  let seriesId = book.seriesId;
+  if (seriesId) {
+    const own = await db.query.series.findFirst({
+      where: eq(schema.series.id, seriesId),
+    });
+    if (own && !own.googleSeriesId) {
+      const clash = await db.query.series.findFirst({
+        where: eq(schema.series.googleSeriesId, ref.seriesId),
+      });
+      if (!clash) {
+        await db
+          .update(schema.series)
+          .set({ googleSeriesId: ref.seriesId })
+          .where(eq(schema.series.id, seriesId));
+      }
+    }
+  } else {
+    const known = await db.query.series.findFirst({
+      where: eq(schema.series.googleSeriesId, ref.seriesId),
+    });
+    seriesId = known?.id ?? null;
+  }
+  await db
+    .update(schema.books)
+    .set({
+      googleSeriesId: ref.seriesId,
+      seriesPosition: book.seriesPosition ?? ref.position,
+      seriesId,
+      seriesSource: book.seriesSource ?? "google",
+    })
+    .where(eq(schema.books.id, book.id));
+  if (seriesId) await linkSiblingsByGoogleId(seriesId, ref.seriesId);
 }
 
 /** Manual override from the book page. Passing an empty name clears the series. */
