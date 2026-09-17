@@ -5,5 +5,9 @@ export async function register() {
   ) {
     const { autoMigrate } = await import("@/lib/db/migrate");
     await autoMigrate();
+    if (process.env.DATABASE_URL) {
+      const { startTolinoScheduler } = await import("@/lib/tolino/scheduler");
+      startTolinoScheduler();
+    }
   }
 }

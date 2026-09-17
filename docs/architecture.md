@@ -14,6 +14,7 @@ flowchart LR
   Next -- Drizzle ORM --> PG[(PostgreSQL)]
   Next -- volumes search --> GB[Google Books API]
   Next -- ISBN lookup --> OL[Open Library]
+  Next -- inventory, reading positions --> TC[Tolino Cloud]
   Browser -- OIDC redirect --> IdP[Identity provider]
   IdP -- callback --> Next
 ```
@@ -51,8 +52,9 @@ flowchart LR
 | `src/lib/library.ts` | Shelves, entries and milestones |
 | `src/lib/reading.ts` | Pure helpers deriving progress and reading sessions from milestones |
 | `src/lib/settings.ts` | Application settings row and OIDC configuration |
+| `src/lib/tolino` | Tolino Cloud client, connection storage, sync engine and scheduler (see [tolino-sync.md](tolino-sync.md)) |
 | `src/lib/actions` | Server actions used by client components |
-| `src/instrumentation.ts` | Runs pending migrations when the server starts |
+| `src/instrumentation.ts` | Runs pending migrations and starts the Tolino sync scheduler when the server starts |
 | `drizzle/` | Generated SQL migrations and their journal |
 
 ## Rendering and caching

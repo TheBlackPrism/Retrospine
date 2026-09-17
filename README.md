@@ -22,6 +22,10 @@ milestones on a timeline, and see where a book sits in its series.
 - **Series** – volume number and series name from Google Books, with Open
   Library as a fallback and a manual override. The book page shows the other
   volumes of the same series.
+- **Tolino Cloud sync** – connect a tolino account and the books you own,
+  where you are in them and what you finished appear on your shelves as
+  milestones, automatically in the background (or while Retrospine is open,
+  when the bookshop blocks the server).
 - **Accounts** – username and password login. The first account created on a
   fresh install becomes the administrator; afterwards registration is closed
   and the admin invites readers from the settings.
@@ -92,6 +96,7 @@ pnpm dev                         # http://localhost:3000
 | `GOOGLE_BOOKS_API_KEY` | no       | Raises the Google Books quota; works without one at low volume                                    |
 | `GOOGLE_BOOKS_COUNTRY` | no       | Country code sent to Google Books (default `US`); avoids 503 answers from unlocatable server IPs   |
 | `AUTO_MIGRATE`         | no       | Set to `false` to run `pnpm db:migrate` yourself                                                  |
+| `TOLINO_SYNC_INTERVAL` | no       | Minutes between automatic Tolino Cloud syncs (default `60`, `0` disables the scheduler)            |
 
 ## Configuring single sign-on
 
@@ -118,6 +123,7 @@ mean, are in [docs/authentication.md](docs/authentication.md).
 | [docs/authentication.md](docs/authentication.md) | Accounts, roles, sessions, OIDC configuration and linking |
 | [docs/books-and-series.md](docs/books-and-series.md) | Search, Google Books client, series resolution, other volumes |
 | [docs/milestones.md](docs/milestones.md) | Shelves, milestone types, status transitions, progress and re-reads |
+| [docs/tolino-sync.md](docs/tolino-sync.md) | Connecting a tolino account, how books and reading positions are imported |
 | [docs/deployment.md](docs/deployment.md) | Docker image, compose, reverse proxy, migrations, backups, upgrades |
 | [docs/development.md](docs/development.md) | Setup, scripts, conventions, tests, feature checklist |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms, causes and fixes |
@@ -134,6 +140,7 @@ src/lib/auth          Better Auth configuration (rebuilt when OIDC settings chan
 src/lib/books         Google Books and Open Library clients, series resolution
 src/lib/db            Drizzle schema, connection, migrations bootstrap
 src/lib/library.ts    shelves and milestones
+src/lib/tolino        Tolino Cloud client, connection storage, sync engine, scheduler
 src/lib/actions       server actions used by the UI
 drizzle/              SQL migrations
 docs/                 documentation

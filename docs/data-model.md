@@ -13,6 +13,9 @@ erDiagram
   series ||--o{ books : contains
   library_entries ||--o{ reading_events : records
   user ||--o| app_settings : "last updated by"
+  user ||--o| tolino_connections : connects
+  user ||--o{ tolino_books : syncs
+  books ||--o{ tolino_books : "is matched by"
 ```
 
 ## Authentication tables
@@ -90,9 +93,46 @@ The milestone timeline of an entry.
 | `occurred_at` | When it happened (see [milestones.md](milestones.md) for how dates are stamped) |
 | `page`, `percent` | Progress markers; either may be null |
 | `note` | Free text, up to 2000 characters |
+| `source` | `manual` (entered in the UI) or `tolino` (written by the Tolino Cloud sync) |
 
 Deleting a user cascades to their entries and events; deleting a book
 cascades to entries; deleting a series only clears `series_id` on its books.
+
+## Tolino Cloud tables
+
+### `tolino_connections`
+
+One row per user (`user_id` is unique). See [tolino-sync.md](tolino-sync.md).
+
+| Column | Meaning |
+| --- | --- |
+| `reseller_id`, `reseller_name` | The bookshop the tolino account belongs to (e.g. 3 = Thalia.de, 8 = Orell Füssli) |
+| `hardware_id` | Device id sent with every request; the web reader's device or one registered by Retrospine |
+| `token_url`, `client_id`, `scope` | OAuth details of the shop captured when connecting |
+| `access_token`, `access_token_expires_at` | Short-lived token, encrypted like the OIDC secret |
+| `refresh_token`, `refresh_token_expires_at` | Rotating refresh token, encrypted |
+| `refresh_mode`, `token_refreshed_at` | `server` (the server renews tokens) or `browser` (the reader's browser does, because the bookshop blocks the server); when tokens were last renewed |
+| `auto_sync`, `import_unread`, `include_audiobooks` | Sync options |
+| `sync_status`, `sync_started_at` | `idle`, `running`, `ok` or `error`; a run older than 20 minutes is considered dead |
+| `last_sync_at`, `last_success_at`, `last_error`, `last_summary` | Result of the last run (`last_summary` is JSON with counters) |
+
+### `tolino_books`
+
+A publication of the user's Tolino library together with the reading state
+that was last synced. `(user_id, publication_id)` is unique.
+
+| Column | Meaning |
+| --- | --- |
+| `publication_id` | Tolino id, e.g. `DT0400.9783641243609_A40398678` |
+| `book_id`, `match_source` | The matched book and how it was found: `isbn`, `google`, `tolino` (created from Tolino data) or `manual` |
+| `ignored` | Excluded from syncing by the user |
+| `kind` | `ebook`, `upload` or `audiobook` |
+| `title`, `subtitle`, `authors[]`, `isbn13`, `publisher`, `language`, `cover_url`, `purchased_at` | Metadata as reported by the Tolino Cloud |
+| `progress`, `progress_at` | Reading position in percent and when it was written, as of the last sync |
+| `finished`, `finished_at` | Finished mark as of the last sync |
+| `last_seen_at` | Last run in which the publication was present |
+
+Deleting a user cascades to both tables; deleting a book clears `book_id`.
 
 ## Changing the schema
 
