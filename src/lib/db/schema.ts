@@ -39,6 +39,9 @@ export const user = pgTable("user", {
   banned: boolean("banned").default(false),
   banReason: text("ban_reason"),
   banExpires: timestamp("ban_expires"),
+  // Retrospine (declared as an additional field in the auth options)
+  /** ISO 639-1 code of the language search results are preferred in; null follows the browser. */
+  preferredLanguage: text("preferred_language"),
 });
 
 export const session = pgTable(

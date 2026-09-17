@@ -1,6 +1,6 @@
 "use client";
 
-import { BookPlus, BookOpenCheck, Loader2, Search, X } from "lucide-react";
+import { BookPlus, BookOpenCheck, Layers, Loader2, Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -12,8 +12,18 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { addGoogleBookAction } from "@/lib/actions/library";
 import type { ReadingStatus } from "@/lib/db/schema";
-import { formatYear } from "@/lib/format";
+import { formatPosition, formatYear, pluralize } from "@/lib/format";
+import { languageLabel } from "@/lib/languages";
 
+export type SearchResultSeries = {
+  /** Google's series id, when any edition of the work reported one. */
+  googleSeriesId: string | null;
+  /** Known once a stored book or series carries the id; Google itself never names a series. */
+  name: string | null;
+  position: number | null;
+};
+
+/** One work: the best edition of it plus what the other editions contributed. */
 export type SearchResult = {
   googleId: string | null;
   title: string;
@@ -22,6 +32,11 @@ export type SearchResult = {
   publishedDate: string | null;
   pageCount: number | null;
   thumbnailUrl: string | null;
+  /** ISO 639-1 code of the shown edition. */
+  language: string | null;
+  /** How many editions were collapsed into this result. */
+  editions: number;
+  series: SearchResultSeries | null;
   bookId: string | null;
   status: ReadingStatus | null;
 };
@@ -31,6 +46,7 @@ type Phase = "idle" | "loading" | "done" | "error";
 export function SearchView({ initialQuery }: { initialQuery: string }) {
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [preferredLanguage, setPreferredLanguage] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,6 +74,7 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
           );
           const data = (await response.json()) as {
             items?: SearchResult[];
+            preferredLanguage?: string | null;
             error?: string;
             transient?: boolean;
           };
@@ -71,6 +88,7 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
             throw new Error(data.error ?? "The search failed.");
           }
           setResults(data.items ?? []);
+          setPreferredLanguage(data.preferredLanguage ?? null);
           setError(null);
           setPhase("done");
           return;
@@ -184,7 +202,11 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.25, delay: Math.min(index, 8) * 0.03 }}
             >
-              <ResultRow result={result} onAdded={markAdded} />
+              <ResultRow
+                result={result}
+                preferredLanguage={preferredLanguage}
+                onAdded={markAdded}
+              />
             </motion.li>
           ))}
         </AnimatePresence>
@@ -193,19 +215,53 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
   );
 }
 
+function describeSeries(series: SearchResultSeries): string {
+  const position = formatPosition(series.position);
+  const name = series.name ?? "a series";
+  return position ? `Book ${position} of ${name}` : `Part of ${name}`;
+}
+
+/** The series reference handed to the import so the stored book keeps it. */
+function seriesRef(series: SearchResultSeries | null) {
+  return series?.googleSeriesId
+    ? { seriesId: series.googleSeriesId, position: series.position }
+    : null;
+}
+
+/** Link that imports the volume on first visit, carrying the pooled series reference. */
+function importHref(result: SearchResult): string {
+  const params = new URLSearchParams();
+  const ref = seriesRef(result.series);
+  if (ref) {
+    params.set("series", ref.seriesId);
+    if (ref.position !== null) params.set("position", String(ref.position));
+  }
+  const query = params.toString();
+  return `/books/google/${result.googleId}${query ? `?${query}` : ""}`;
+}
+
 function ResultRow({
   result,
+  preferredLanguage,
   onAdded,
 }: {
   result: SearchResult;
+  preferredLanguage: string | null;
   onAdded: (googleId: string, bookId: string, status: ReadingStatus) => void;
 }) {
   const [pending, startTransition] = useTransition();
   const year = formatYear(result.publishedDate);
+  // Only worth mentioning when no edition in the reader's language was found.
+  const language =
+    result.language && result.language !== preferredLanguage
+      ? languageLabel(result.language)
+      : null;
   const meta = [
     result.authors.join(", "),
     year,
     result.pageCount ? `${result.pageCount} pages` : null,
+    language,
+    result.editions > 1 ? pluralize(result.editions, "edition") : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -214,7 +270,7 @@ function ResultRow({
     if (!result.googleId) return;
     const googleId = result.googleId;
     startTransition(async () => {
-      const response = await addGoogleBookAction(googleId, status);
+      const response = await addGoogleBookAction(googleId, status, seriesRef(result.series));
       if (response.ok) {
         toast.success(response.message);
         if (response.data) onAdded(googleId, response.data.bookId, status);
@@ -227,7 +283,7 @@ function ResultRow({
   const detailHref = result.bookId
     ? `/books/${result.bookId}`
     : result.googleId
-      ? `/books/google/${result.googleId}`
+      ? importHref(result)
       : null;
 
   return (
@@ -253,6 +309,12 @@ function ResultRow({
           <p className="line-clamp-1 text-xs text-muted-foreground">{result.subtitle}</p>
         ) : null}
         {meta ? <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{meta}</p> : null}
+        {result.series ? (
+          <p className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-amber-foreground">
+            <Layers className="size-3" />
+            {describeSeries(result.series)}
+          </p>
+        ) : null}
         <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
           {result.status && result.bookId ? (
             <>

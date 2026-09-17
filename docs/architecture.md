@@ -42,7 +42,7 @@ flowchart LR
 | `src/app/(auth)` | Login and first-run setup, outside the app shell |
 | `src/app/(app)` | Everything behind login: library, search, book pages, settings |
 | `src/app/api/auth/[...all]` | Better Auth handler (sign-in, OIDC callback, sessions) |
-| `src/app/api/books/search` | Google Books search proxy that also marks books already on a shelf |
+| `src/app/api/books/search` | Google Books search proxy that collapses editions into one result per work and marks books already on a shelf |
 | `src/app/api/health` | Liveness check used by the Docker `HEALTHCHECK` |
 | `src/components/ui` | shadcn/ui primitives (Radix based) |
 | `src/components/*` | Application components grouped by feature |

@@ -42,6 +42,12 @@ export function buildAuthOptions(
       minPasswordLength: 8,
       autoSignIn: true,
     },
+    user: {
+      additionalFields: {
+        /** ISO 639-1 code of the language search results are preferred in. */
+        preferredLanguage: { type: "string", required: false, input: true },
+      },
+    },
     session: {
       expiresIn: 60 * 60 * 24 * 30,
       updateAge: 60 * 60 * 24,

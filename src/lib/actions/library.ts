@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import type { GoogleSeriesRef } from "@/lib/books/editions";
 import { setBookSeries } from "@/lib/books/series";
 import { requireSession } from "@/lib/auth/session";
 import type { ReadingStatus } from "@/lib/db/schema";
@@ -48,15 +50,33 @@ function revalidateBook(bookId: string) {
   revalidatePath(`/books/${bookId}`);
 }
 
-/** Adds a Google Books result to a shelf, storing the book on first use. */
+/** Series reference the search pooled from other editions of the same work. */
+const seriesRefSchema = z
+  .object({
+    seriesId: z.string().min(1).max(100),
+    position: z.number().min(0).max(9999).nullable(),
+  })
+  .nullable()
+  .optional();
+
+/**
+ * Adds a Google Books result to a shelf, storing the book on first use.
+ * `series` lets a volume without series information inherit what another
+ * edition of the work reported.
+ */
 export async function addGoogleBookAction(
   googleId: string,
   status: ReadingStatus,
+  series?: GoogleSeriesRef | null,
 ): Promise<ActionResult<{ bookId: string }>> {
   const session = await requireSession();
   if (!isReadingStatus(status)) return { ok: false, error: "Unknown shelf." };
+  const parsedSeries = seriesRefSchema.safeParse(series);
+  if (!parsedSeries.success) return { ok: false, error: "The series reference is invalid." };
   try {
-    const book = await findOrCreateBookByGoogleId(googleId);
+    const book = await findOrCreateBookByGoogleId(googleId, {
+      series: parsedSeries.data ?? null,
+    });
     await addBookToLibrary(session.user.id, book.id, status);
     revalidateBook(book.id);
     return {

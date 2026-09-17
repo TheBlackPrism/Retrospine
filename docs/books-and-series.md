@@ -8,13 +8,64 @@ by 350 ms and calls `/api/books/search?q=…`. The route
 
 1. requires a session,
 2. queries Google Books (`searchVolumes` in `src/lib/books/google-books.ts`,
-   20 results, `printType=books`),
-3. joins the results with books already in the database and the current
+   40 results, `printType=books`),
+3. collapses the editions of each work into one result (see below),
+4. joins the results with books already in the database and the current
    user's shelf entries, so results that are already on a shelf show their
    status instead of the add buttons.
 
 Adding a result calls the `addGoogleBookAction` server action, which imports
 the volume if necessary and creates the shelf entry.
+
+### One result per work
+
+Google Books lists every edition it knows (hardcover, paperback, e-book,
+translations, reissues), so a search for "Red Rising" used to fill the page
+with the same book. `collapseEditions` (`src/lib/books/editions.ts`) groups
+the results by a title key plus the first author's surname, because Google
+has no work identifier:
+
+- `workTitleKey` lower-cases the title, strips accents and punctuation,
+  bracketed asides (`(Red Rising Series Book 1)`) and volume markers
+  (`Book 1`, `Vol. 2`, `#3`), and drops a subtitle when it only describes
+  the edition or the series (`A Novel`, `Book 2 of the Red Rising Saga`).
+  Subtitles that name a different book are kept, so `Dune: House Atreides`
+  and `Dune: House Harkonnen` stay apart, as do box sets and graphic novels.
+- Within a group the edition in the reader's preferred language ranks first
+  (an edition of unknown language ranks between a match and a mismatch),
+  then the one with a cover, an ISBN, series information, a description and
+  a page count, then the one Google ranked higher. Groups keep the order in
+  which they first appeared.
+- A book the reader already has on a shelf represents its group whatever its
+  language, so the result shows the shelf status.
+- The series reference is pooled: the group carries the Google series id and
+  volume number of the best edition that reports one, so the main result
+  shows "Book 1 of …" even when the shown edition lacks the information. The
+  name appears once a stored series carries the id (Google never names a
+  series).
+
+The response reports how many editions were merged and the language of the
+shown edition; the page mentions the language only when it differs from the
+preferred one.
+
+### Preferred language
+
+Each reader chooses a language in *Settings → Profile*
+(`user.preferred_language`, an ISO 639-1 code). Without a choice, the most
+preferred language of the browser's `Accept-Language` header is used. The
+helpers and the list of offered languages live in `src/lib/languages.ts`.
+
+### Keeping the pooled series reference
+
+When a result is added or opened, the search passes the pooled reference
+along (`addGoogleBookAction(googleId, status, series)` and
+`/books/google/<id>?series=…&position=…`). `findOrCreateBookByGoogleId`
+stores it on volumes that carry none of their own. `adoptGoogleSeries`
+(`src/lib/books/series.ts`) backfills it on books stored earlier: the book
+joins a series that already carries the id, or the series it belongs to
+learns the id, and other volumes sharing the id are linked. The search route
+applies the same backfill to stored books it comes across, so a book imported
+before its series was known catches up the next time it turns up in a search.
 
 ## Google Books client
 
@@ -56,7 +107,8 @@ combined (`src/lib/books/series.ts`):
    (`Name, #3`, `Name (3)`, `Name #3`, `Name ; 3`, `Name, Book 3`,
    `Name Vol. 3`, `Book 3 of Name`) and ignores numbers that are part of the
    title (`Fahrenheit 451`). The first entry with a position wins.
-2. **Google Books series id** – when Google reports a series id and a series
+2. **Google Books series id** – when Google reports a series id (on the
+   volume itself, or pooled from another edition by the search) and a series
    with that id already exists (because another volume was named), the book
    joins it. The Google volume number is used when Open Library has none.
 3. **Manual** – the book page has an *Edit series* dialog. Entering a name

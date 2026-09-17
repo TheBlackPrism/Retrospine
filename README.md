@@ -15,7 +15,9 @@ milestones on a timeline, and see where a book sits in its series.
 - **Shelves** – four reading statuses with animated, cover-first grids and a
   progress bar for books you are reading.
 - **Search** – Google Books search by title, author or ISBN with one-tap
-  adding to a shelf.
+  adding to a shelf. The editions of a book are collapsed into one result in
+  your preferred language, and series information found on any edition is
+  kept.
 - **Milestones** – a timeline per book: started, progress (page or percent),
   notes, finished, set aside. Milestones move the book between shelves, drive
   the progress bar and support re-reads.
