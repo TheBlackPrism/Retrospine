@@ -15,6 +15,9 @@ RUN pnpm install --frozen-lockfile
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# The repository has no public/ folder (icons and the web manifest are metadata
+# routes under src/app). Create it so that the runtime stage can always copy it.
+RUN mkdir -p public
 RUN pnpm build
 
 # ---- runtime ---------------------------------------------------------------
