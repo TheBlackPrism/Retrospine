@@ -300,6 +300,15 @@ export const tolinoSyncStatusEnum = pgEnum("tolino_sync_status", [
   "error",
 ]);
 
+/**
+ * Who renews the OAuth tokens: the server, or the reader's browser when the
+ * bookshop's bot protection blocks token requests from the server.
+ */
+export const tolinoRefreshModeEnum = pgEnum("tolino_refresh_mode", [
+  "server",
+  "browser",
+]);
+
 /** Counters of the last completed sync run, shown in the settings. */
 export type TolinoSyncSummary = {
   /** Publications seen in the Tolino library. */
@@ -343,6 +352,9 @@ export const tolinoConnections = pgTable(
     refreshTokenExpiresAt: timestamp("refresh_token_expires_at", {
       withTimezone: true,
     }),
+    refreshMode: tolinoRefreshModeEnum("refresh_mode").default("server").notNull(),
+    /** When the tokens were last renewed, by either side. */
+    tokenRefreshedAt: timestamp("token_refreshed_at", { withTimezone: true }),
     /** Sync on a schedule, not only when pressing "Sync now". */
     autoSync: boolean("auto_sync").default(true).notNull(),
     /** Put books that were never opened on the "Want to read" shelf. */
@@ -523,3 +535,4 @@ export type TolinoBookKind = (typeof tolinoBookKindEnum.enumValues)[number];
 export type TolinoMatchSource =
   (typeof tolinoMatchSourceEnum.enumValues)[number];
 export type TolinoSyncStatus = (typeof tolinoSyncStatusEnum.enumValues)[number];
+export type TolinoRefreshMode = (typeof tolinoRefreshModeEnum.enumValues)[number];

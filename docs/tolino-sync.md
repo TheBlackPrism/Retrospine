@@ -33,12 +33,45 @@ flowchart LR
    publication to a book and records what changed since the previous run.
    Runs happen when you press **Sync now**, right after connecting, and
    automatically in the background (see below).
-3. **Keeping the connection alive.** Access tokens last about an hour and are
-   refreshed on demand. The refresh token itself expires after roughly ten
-   hours without use, so the scheduler also refreshes tokens that are about
-   to expire even when no sync is due. If the server was down for longer than
-   that, the sync fails with "Tolino Cloud sign-in failed" and the settings
-   page offers to connect again with a fresh token.
+3. **Keeping the connection alive.** The bookshops run Keycloak: access
+   tokens last an hour and a refresh token also expires after an hour unless
+   it is used, which rotates it. The server refreshes on demand and the
+   scheduler refreshes tokens that are about to expire even when no sync is
+   due, so a running server keeps the connection alive. If the server was
+   down for longer than an hour, the sync fails with "Tolino Cloud sign-in
+   failed" and the settings page offers to connect again with a fresh token.
+
+## When the bookshop blocks the server
+
+Token requests go to the bookshop, and its bot protection (Cloudflare in
+front of the Thalia group shops) scores the client: requests identifying as
+a tolino device are let through from most addresses, but some hosting
+ranges are refused with an HTML "Zugriff geblockt" page no matter what.
+Retrospine finds out on its own: when connecting, the server sends a
+deliberately invalid refresh token to the token endpoint (`invalid_grant`
+proves it is reachable, the block page proves it is not), and a block during
+a later refresh switches the connection over as well.
+
+For a blocked server the connection runs in **browser mode**
+(`tolino_connections.refresh_mode = browser`):
+
+- The connect form exchanges the pasted token in the reader's browser
+  (`src/lib/tolino/browser.ts`); the token endpoint allows cross-origin
+  requests, and browsers are not blocked. The resulting tokens are handed to
+  the server, which still talks to the Tolino Cloud itself.
+- While Retrospine is open in a browser tab, `TolinoTokenKeeper` (mounted in
+  the app layout) renews the access token 15 minutes before it expires and
+  gives the rotated refresh token back to the server. Tabs coordinate
+  through the Web Locks API so only one of them refreshes.
+- Scheduled syncs run as long as the access token is valid. About an hour
+  after the last open tab, the tokens expire; the next visit shows
+  "Tolino Cloud sign-in failed" and the form to connect again. In other
+  words: syncs happen while and shortly after you use Retrospine, not
+  unattended for days.
+
+The settings page says which mode a connection is in. Once an hour the
+scheduler probes the shop again for connections in browser mode and hands
+token renewal back to the server as soon as the shop answers it.
 
 ## Matching books
 
@@ -114,7 +147,7 @@ There is no public API; the requests mirror the official web reader
 | Purpose | Request |
 | --- | --- |
 | Bookshop OAuth details | `GET bosh.pageplace.de/bosh/rest/v2/resellerconfig` |
-| Token refresh | `POST <shop>/auth/oauth2/token` (`grant_type=refresh_token`), sent with a tolino device user agent because the shops block generic clients |
+| Token refresh | `POST <shop>/auth/oauth2/token` (`grant_type=refresh_token`), sent with a tolino device user agent because the shops block generic clients; from the browser when the server is blocked |
 | Devices | `POST bosh.pageplace.de/bosh/rest/handshake/devices/list`, `POST api.pageplace.de/v1/devices` |
 | Inventory | `GET api.pageplace.de/v8/inventory?page=…` (paged), fallback `GET bosh.pageplace.de/bosh/rest/inventory/delta` |
 | Reading state | `PATCH api.pageplace.de/v4/reading-metadata?paths=publications,audiobooks` with an empty revision (full state), fallback `PATCH bosh.pageplace.de/bosh/rest/sync-data` |

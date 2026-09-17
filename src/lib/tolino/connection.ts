@@ -1,9 +1,10 @@
-import { and, eq, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, gt, lt, ne, or, sql } from "drizzle-orm";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { db, schema } from "@/lib/db";
 import type {
   TolinoBook,
   TolinoConnection,
+  TolinoRefreshMode,
   TolinoSyncStatus,
   TolinoSyncSummary,
 } from "@/lib/db/schema";
@@ -14,11 +15,18 @@ import {
   getResellerInfo,
   listDevices,
   pickWebReaderDevice,
+  probeTokenEndpoint,
   refreshTokens,
   registerDevice,
   TolinoError,
   type TolinoSession,
 } from "./client";
+import {
+  tokenSetFromInput,
+  type TokenSet,
+  type TokenSetInput,
+  type TolinoOAuth,
+} from "./tokens";
 
 /** A sync that has not reported back after this long is considered dead. */
 const STALE_RUN_MS = 20 * 60 * 1000;
@@ -40,7 +48,10 @@ export type TolinoConnectionView = {
   lastSuccessAt: string | null;
   lastError: string | null;
   lastSummary: TolinoSyncSummary | null;
+  refreshMode: TolinoRefreshMode;
+  accessTokenExpiresAt: string | null;
   refreshTokenExpiresAt: string | null;
+  tokenRefreshedAt: string | null;
   createdAt: string;
 };
 
@@ -59,7 +70,10 @@ export function toConnectionView(row: TolinoConnection): TolinoConnectionView {
     lastSuccessAt: row.lastSuccessAt?.toISOString() ?? null,
     lastError: row.lastError,
     lastSummary: row.lastSummary ?? null,
+    refreshMode: row.refreshMode,
+    accessTokenExpiresAt: row.accessTokenExpiresAt?.toISOString() ?? null,
     refreshTokenExpiresAt: row.refreshTokenExpiresAt?.toISOString() ?? null,
+    tokenRefreshedAt: row.tokenRefreshedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -77,8 +91,10 @@ export async function getTolinoConnection(userId: string): Promise<TolinoConnect
 
 export type ConnectTolinoInput = {
   resellerId: number;
-  /** Refresh token copied from the web reader's token response. */
-  refreshToken: string;
+  /** Refresh token copied from the web reader; exchanged by the server. */
+  refreshToken?: string | null;
+  /** Tokens the browser already exchanged, when the bookshop blocks the server. */
+  tokens?: TokenSetInput | null;
   /** `hardware_id` header of the web reader; detected from the device list when empty. */
   hardwareId?: string | null;
 };
@@ -92,7 +108,16 @@ export async function connectTolino(
   input: ConnectTolinoInput,
 ): Promise<TolinoConnection> {
   const reseller = await getResellerInfo(input.resellerId);
-  const tokens = await refreshTokens(reseller, input.refreshToken.trim());
+  let tokens: TokenSet;
+  let refreshMode: TolinoRefreshMode = "server";
+  if (input.tokens) {
+    tokens = tokenSetFromInput(input.tokens);
+    refreshMode = (await probeTokenEndpoint(reseller)) === "blocked" ? "browser" : "server";
+  } else if (input.refreshToken?.trim()) {
+    tokens = await refreshTokens(reseller, input.refreshToken.trim());
+  } else {
+    throw new TolinoError("Paste the refresh token from the web reader.", "auth");
+  }
 
   let hardwareId = input.hardwareId?.trim() || null;
   const base = {
@@ -131,6 +156,8 @@ export async function connectTolino(
     accessTokenExpiresAt: tokens.expiresAt,
     refreshToken: encryptSecret(tokens.refreshToken),
     refreshTokenExpiresAt: tokens.refreshExpiresAt,
+    refreshMode,
+    tokenRefreshedAt: new Date(),
     syncStatus: "idle" as const,
     syncStartedAt: null,
     lastError: null,
@@ -191,14 +218,40 @@ export async function getTolinoSession(connection: TolinoConnection): Promise<To
     return { ...base, ...hosts, accessToken: decryptSecret(connection.accessToken) };
   }
 
-  const tokens = await refreshTokens(
-    {
-      tokenUrl: reseller?.tokenUrl ?? connection.tokenUrl,
-      clientId: reseller?.clientId ?? connection.clientId,
-      scope: reseller?.scope ?? connection.scope,
-    },
-    decryptSecret(connection.refreshToken),
-  );
+  if (connection.refreshMode === "browser") {
+    throw new TolinoError(
+      "The access token has expired and this server cannot renew it because the bookshop blocks it. Open Retrospine in your browser to renew the connection.",
+      "blocked",
+    );
+  }
+
+  let tokens: TokenSet;
+  try {
+    tokens = await refreshTokens(oauthFor(connection, reseller), decryptSecret(connection.refreshToken));
+  } catch (error) {
+    if (error instanceof TolinoError && error.kind === "blocked") {
+      // From now on the reader's browser renews the tokens.
+      await setRefreshMode(connection.id, "browser");
+    }
+    throw error;
+  }
+  await storeTolinoTokens(connection.id, tokens);
+  return { ...base, ...hosts, accessToken: tokens.accessToken };
+}
+
+/** OAuth endpoint and client for a connection; the live reseller info wins when available. */
+export function oauthFor(
+  connection: Pick<TolinoConnection, "tokenUrl" | "clientId" | "scope">,
+  reseller: TolinoOAuth | null,
+): TolinoOAuth {
+  return {
+    tokenUrl: reseller?.tokenUrl ?? connection.tokenUrl,
+    clientId: reseller?.clientId ?? connection.clientId,
+    scope: reseller?.scope ?? connection.scope,
+  };
+}
+
+export async function storeTolinoTokens(connectionId: string, tokens: TokenSet): Promise<void> {
   await db
     .update(schema.tolinoConnections)
     .set({
@@ -206,9 +259,64 @@ export async function getTolinoSession(connection: TolinoConnection): Promise<To
       accessTokenExpiresAt: tokens.expiresAt,
       refreshToken: encryptSecret(tokens.refreshToken),
       refreshTokenExpiresAt: tokens.refreshExpiresAt,
+      tokenRefreshedAt: new Date(),
     })
-    .where(eq(schema.tolinoConnections.id, connection.id));
-  return { ...base, ...hosts, accessToken: tokens.accessToken };
+    .where(eq(schema.tolinoConnections.id, connectionId));
+}
+
+export async function setRefreshMode(connectionId: string, mode: TolinoRefreshMode): Promise<void> {
+  await db
+    .update(schema.tolinoConnections)
+    .set({ refreshMode: mode })
+    .where(eq(schema.tolinoConnections.id, connectionId));
+}
+
+/** Remembers why the tokens could not be renewed, so the settings page can explain it. */
+export async function recordTokenFailure(connectionId: string, message: string): Promise<void> {
+  await db
+    .update(schema.tolinoConnections)
+    .set({ syncStatus: "error", syncStartedAt: null, lastError: message })
+    .where(eq(schema.tolinoConnections.id, connectionId));
+}
+
+/** What the browser needs to renew tokens on the server's behalf. */
+export type TolinoTokenState = {
+  refreshMode: TolinoRefreshMode;
+  accessTokenExpiresAt: string | null;
+  refreshTokenExpiresAt: string | null;
+  tokenRefreshedAt: string | null;
+  syncStatus: TolinoSyncStatus;
+  /** Whether a scheduled sync is overdue. */
+  syncDue: boolean;
+  oauth: TolinoOAuth;
+  /** Only handed out in browser mode, to the owner of the connection. */
+  refreshToken: string | null;
+};
+
+export async function getTolinoTokenState(
+  userId: string,
+  syncIntervalMs: number,
+): Promise<TolinoTokenState | null> {
+  const connection = await getTolinoConnection(userId);
+  if (!connection) return null;
+  const reseller = await getResellerInfo(connection.resellerId).catch(() => null);
+  const lastSync = connection.lastSyncAt?.getTime() ?? 0;
+  const syncDue =
+    connection.autoSync &&
+    syncIntervalMs > 0 &&
+    connection.syncStatus !== "running" &&
+    Date.now() - lastSync >= syncIntervalMs;
+  return {
+    refreshMode: connection.refreshMode,
+    accessTokenExpiresAt: connection.accessTokenExpiresAt?.toISOString() ?? null,
+    refreshTokenExpiresAt: connection.refreshTokenExpiresAt?.toISOString() ?? null,
+    tokenRefreshedAt: connection.tokenRefreshedAt?.toISOString() ?? null,
+    syncStatus: connection.syncStatus,
+    syncDue,
+    oauth: oauthFor(connection, reseller),
+    refreshToken:
+      connection.refreshMode === "browser" ? decryptSecret(connection.refreshToken) : null,
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -262,10 +370,14 @@ export async function finishSyncRun(
     .where(eq(schema.tolinoConnections.id, connectionId));
 }
 
-/** Connections whose scheduled sync is due. */
+/**
+ * Connections whose scheduled sync is due. A connection whose tokens are
+ * renewed by the browser only qualifies while its access token is valid.
+ */
 export async function listConnectionsDueForSync(intervalMs: number): Promise<TolinoConnection[]> {
   const before = new Date(Date.now() - intervalMs);
   const staleBefore = new Date(Date.now() - STALE_RUN_MS);
+  const tokenValidUntil = new Date(Date.now() + TOKEN_MARGIN_MS);
   return db.query.tolinoConnections.findMany({
     where: and(
       eq(schema.tolinoConnections.autoSync, true),
@@ -276,6 +388,10 @@ export async function listConnectionsDueForSync(intervalMs: number): Promise<Tol
       or(
         ne(schema.tolinoConnections.syncStatus, "running"),
         lt(schema.tolinoConnections.syncStartedAt, staleBefore),
+      ),
+      or(
+        eq(schema.tolinoConnections.refreshMode, "server"),
+        gt(schema.tolinoConnections.accessTokenExpiresAt, tokenValidUntil),
       ),
     ),
   });

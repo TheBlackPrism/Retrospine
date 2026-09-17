@@ -27,7 +27,7 @@ troubleshooting) before making changes.
 
 - Pages: `src/app/(auth)` (login, setup) and `src/app/(app)` (library, search, books, settings)
 - Data access: `src/lib/library.ts`, `src/lib/books/*`, `src/lib/settings.ts`
-- Tolino Cloud sync: `src/lib/tolino/*` (client, connection storage, sync engine, scheduler started from `src/instrumentation.ts`); see `docs/tolino-sync.md`
+- Tolino Cloud sync: `src/lib/tolino/*` (client, connection storage, sync engine, scheduler started from `src/instrumentation.ts`; `browser.ts` and `tolino/token-keeper.tsx` renew tokens from the reader's browser when a bookshop blocks the server); see `docs/tolino-sync.md`
 - Mutations: server actions in `src/lib/actions/*` returning `ActionResult`/`FormState`
 - Auth: `src/lib/auth/options.ts` (config), `getAuth()` (lazy instance), `requireSession()`/`requireAdmin()`
 - Pure helpers with unit tests: `src/lib/reading.ts`, `src/lib/books/open-library.ts`, `src/lib/books/google-books.ts`, `src/lib/tolino/parse.ts`

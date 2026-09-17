@@ -1,9 +1,17 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, Cloud, Loader2, RefreshCw, Unlink2 } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Cloud,
+  Globe,
+  Loader2,
+  RefreshCw,
+  Unlink2,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -29,6 +37,18 @@ function summaryText(summary: NonNullable<TolinoConnectionView["lastSummary"]>):
   if (summary.deferred) parts.push(`${summary.deferred} waiting for Google Books`);
   if (summary.skipped) parts.push(`${summary.skipped} skipped`);
   return parts.join(" · ");
+}
+
+/** Minutes until `iso`, updated every minute; unknown during server rendering. */
+function useMinutesUntil(iso: string | null): number | null {
+  return useSyncExternalStore(
+    (onChange) => {
+      const timer = setInterval(onChange, 60_000);
+      return () => clearInterval(timer);
+    },
+    () => (iso ? Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 60_000)) : null),
+    () => null,
+  );
 }
 
 /** Refreshes the page while a sync is running so the status stays live. */
@@ -76,7 +96,10 @@ export function TolinoStatusCard({
     run(disconnectTolinoAction);
   }
 
-  const authProblem = connection.syncStatus === "error" && /sign-in failed/i.test(connection.lastError ?? "");
+  const authProblem =
+    connection.syncStatus === "error" &&
+    /sign-in failed|rejected the refresh token|expired|blocked/i.test(connection.lastError ?? "");
+  const accessMinutes = useMinutesUntil(connection.accessTokenExpiresAt);
 
   return (
     <div className="space-y-4">
@@ -145,6 +168,23 @@ export function TolinoStatusCard({
 
       {!compact && connection.lastSummary ? (
         <p className="text-sm text-muted-foreground">{summaryText(connection.lastSummary)}</p>
+      ) : null}
+
+      {!compact && connection.refreshMode === "browser" ? (
+        <div className="flex gap-3 rounded-xl border border-border/70 bg-background/60 p-4 text-sm">
+          <Globe className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <div className="space-y-1">
+            <p className="font-medium">Tokens are renewed by your browser</p>
+            <p className="text-muted-foreground">
+              {connection.resellerName} blocks token requests from this server, so Retrospine
+              renews the sign-in from your browser while it is open, and syncs run as long as the
+              access token is valid
+              {accessMinutes !== null ? ` (another ${pluralize(accessMinutes, "minute")})` : ""}.
+              After about an hour without Retrospine open, the sign-in lapses and you connect
+              again with a fresh token from the web reader.
+            </p>
+          </div>
+        </div>
       ) : null}
     </div>
   );

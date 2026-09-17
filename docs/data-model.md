@@ -111,6 +111,7 @@ One row per user (`user_id` is unique). See [tolino-sync.md](tolino-sync.md).
 | `token_url`, `client_id`, `scope` | OAuth details of the shop captured when connecting |
 | `access_token`, `access_token_expires_at` | Short-lived token, encrypted like the OIDC secret |
 | `refresh_token`, `refresh_token_expires_at` | Rotating refresh token, encrypted |
+| `refresh_mode`, `token_refreshed_at` | `server` (the server renews tokens) or `browser` (the reader's browser does, because the bookshop blocks the server); when tokens were last renewed |
 | `auto_sync`, `import_unread`, `include_audiobooks` | Sync options |
 | `sync_status`, `sync_started_at` | `idle`, `running`, `ok` or `error`; a run older than 20 minutes is considered dead |
 | `last_sync_at`, `last_success_at`, `last_error`, `last_summary` | Result of the last run (`last_summary` is JSON with counters) |

@@ -1,6 +1,8 @@
 import { AppShell } from "@/components/app-shell";
 import { PageTransition } from "@/components/page-transition";
+import { TolinoTokenKeeper } from "@/components/settings/tolino/token-keeper";
 import { isAdmin, requireSession } from "@/lib/auth/session";
+import { getTolinoConnection } from "@/lib/tolino/connection";
 
 export default async function AppLayout({
   children,
@@ -8,6 +10,7 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   const session = await requireSession();
+  const tolino = await getTolinoConnection(session.user.id);
   return (
     <AppShell
       user={{
@@ -17,6 +20,7 @@ export default async function AppLayout({
         isAdmin: isAdmin(session),
       }}
     >
+      {tolino ? <TolinoTokenKeeper /> : null}
       <PageTransition>{children}</PageTransition>
     </AppShell>
   );

@@ -1,7 +1,13 @@
-import { and, gt, isNotNull, lt } from "drizzle-orm";
+import { and, eq, gt, isNotNull, lt } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { env } from "@/lib/env";
-import { getTolinoSession, listConnectionsDueForSync } from "./connection";
+import { getResellerInfo, probeTokenEndpoint } from "./client";
+import {
+  getTolinoSession,
+  listConnectionsDueForSync,
+  oauthFor,
+  setRefreshMode,
+} from "./connection";
 import { runTolinoSync } from "./sync";
 
 /**
@@ -15,12 +21,41 @@ const TICK_MS = 5 * 60 * 1000;
 const FIRST_TICK_MS = 45 * 1000;
 /** Refresh tokens that expire within this window even if no sync is due. */
 const TOKEN_KEEPALIVE_MS = 3 * 60 * 60 * 1000;
+/** How often a blocked bookshop is probed again on behalf of browser-mode connections. */
+const REPROBE_MS = 60 * 60 * 1000;
 
 type Timer = ReturnType<typeof setInterval>;
 const globalForScheduler = globalThis as unknown as {
   __retrospineTolinoTimer?: Timer;
   __retrospineTolinoTicking?: boolean;
+  __retrospineTolinoReprobedAt?: number;
 };
+
+/**
+ * A bookshop that blocked this server may stop doing so (the block was a
+ * rate limit, the server moved). Once an hour, connections in browser mode
+ * get their token endpoint probed; when it answers, the server takes the
+ * token renewal back.
+ */
+async function reprobeBlockedShops(): Promise<void> {
+  const last = globalForScheduler.__retrospineTolinoReprobedAt ?? 0;
+  if (Date.now() - last < REPROBE_MS) return;
+  globalForScheduler.__retrospineTolinoReprobedAt = Date.now();
+  const inBrowserMode = await db.query.tolinoConnections.findMany({
+    where: eq(schema.tolinoConnections.refreshMode, "browser"),
+  });
+  for (const connection of inBrowserMode) {
+    try {
+      const reseller = await getResellerInfo(connection.resellerId).catch(() => null);
+      if ((await probeTokenEndpoint(oauthFor(connection, reseller))) === "reachable") {
+        await setRefreshMode(connection.id, "server");
+        console.log(`[tolino] ${connection.resellerName} answers this server again; renewing tokens on the server for user ${connection.userId}`);
+      }
+    } catch (error) {
+      console.warn(`[tolino] re-probe for user ${connection.userId} failed`, error);
+    }
+  }
+}
 
 async function keepTokensAlive(): Promise<void> {
   const now = new Date();
@@ -28,6 +63,7 @@ async function keepTokensAlive(): Promise<void> {
   // Tokens that already expired cannot be refreshed; the next sync reports that.
   const expiring = await db.query.tolinoConnections.findMany({
     where: and(
+      eq(schema.tolinoConnections.refreshMode, "server"),
       isNotNull(schema.tolinoConnections.refreshTokenExpiresAt),
       lt(schema.tolinoConnections.refreshTokenExpiresAt, soon),
       gt(schema.tolinoConnections.refreshTokenExpiresAt, now),
@@ -56,6 +92,7 @@ async function tick(intervalMs: number): Promise<void> {
       await runTolinoSync(connection.userId, "scheduled");
     }
     await keepTokensAlive();
+    await reprobeBlockedShops();
   } catch (error) {
     console.error("[tolino] scheduler tick failed", error);
   } finally {

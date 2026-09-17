@@ -1,7 +1,9 @@
 "use client";
 
 import { ChevronDown, Cloud } from "lucide-react";
-import { useActionState, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { FormStatus } from "@/components/settings/form-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,8 +16,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { connectTolinoAction } from "@/lib/actions/tolino";
-import { idleState } from "@/lib/actions/state";
+import { connectTolinoAction, prepareTolinoConnectAction } from "@/lib/actions/tolino";
+import type { FormState } from "@/lib/actions/state";
+import { refreshTokensInBrowser } from "@/lib/tolino/browser";
+import { extractRefreshToken } from "@/lib/tolino/parse";
 import { TOLINO_RESELLERS, TOLINO_WEB_READER_URL } from "@/lib/tolino/resellers";
 
 export function TolinoConnectForm({
@@ -25,14 +29,62 @@ export function TolinoConnectForm({
   defaultResellerId?: number | null;
   replacing?: boolean;
 }) {
-  const [state, action, pending] = useActionState(connectTolinoAction, idleState);
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [state, setState] = useState<FormState>({ status: "idle" });
   const [resellerId, setResellerId] = useState(
     defaultResellerId ? String(defaultResellerId) : "",
   );
   const [advanced, setAdvanced] = useState(false);
 
+  function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const refreshToken = extractRefreshToken(String(form.get("refreshToken") ?? ""));
+    const hardwareId = String(form.get("hardwareId") ?? "").trim();
+    const reseller = Number(resellerId);
+    if (!reseller) {
+      setState({ status: "error", message: "Choose your bookshop." });
+      return;
+    }
+    if (refreshToken.length < 8) {
+      setState({ status: "error", message: "Paste the refresh token from the web reader." });
+      return;
+    }
+
+    startTransition(async () => {
+      setState({ status: "idle" });
+      const prepared = await prepareTolinoConnectAction(reseller);
+      if (!prepared.ok) {
+        setState({ status: "error", message: prepared.error });
+        return;
+      }
+      const { serverCanRefresh, oauth } = prepared.data!;
+
+      let result;
+      if (serverCanRefresh) {
+        result = await connectTolinoAction({ resellerId: reseller, refreshToken, hardwareId });
+      } else {
+        // The bookshop blocks this server, so the browser exchanges the token.
+        const exchanged = await refreshTokensInBrowser(oauth, refreshToken);
+        if (!exchanged.ok) {
+          setState({ status: "error", message: exchanged.failure.message });
+          return;
+        }
+        result = await connectTolinoAction({ resellerId: reseller, tokens: exchanged.tokens, hardwareId });
+      }
+
+      if (result.ok) {
+        toast.success(result.message);
+        router.refresh();
+      } else {
+        setState({ status: "error", message: result.error });
+      }
+    });
+  }
+
   return (
-    <form action={action} className="space-y-6">
+    <form onSubmit={onSubmit} className="space-y-6">
       <FormStatus state={state} />
 
       <ol className="space-y-3 rounded-xl border border-border/70 bg-background/60 p-4 text-sm">
@@ -69,13 +121,12 @@ export function TolinoConnectForm({
         </li>
         <li className="flex gap-3">
           <StepNumber>4</StepNumber>
-          <span>Paste it below, choose your bookshop and connect.</span>
+          <span>Paste it below within the hour, choose your bookshop and connect.</span>
         </li>
       </ol>
 
       <div className="space-y-1.5">
         <Label htmlFor="tolino-reseller">Bookshop</Label>
-        <input type="hidden" name="resellerId" value={resellerId} />
         <Select value={resellerId} onValueChange={setResellerId}>
           <SelectTrigger id="tolino-reseller" className="h-11 w-full">
             <SelectValue placeholder="Where did you buy your tolino?" />

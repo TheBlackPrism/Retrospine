@@ -6,6 +6,17 @@ import {
   type TolinoReadingState,
 } from "./parse";
 import { findReseller } from "./resellers";
+import {
+  buildRefreshBody,
+  describeTokenFailure,
+  isBlockedPage,
+  parseTokenResponse,
+  tokenSetFromInput,
+  type TokenSet,
+  type TolinoOAuth,
+} from "./tokens";
+
+export type { TokenSet, TolinoOAuth } from "./tokens";
 
 /**
  * HTTP client for the Tolino Cloud, the shared e-book service behind the
@@ -36,8 +47,13 @@ const TIMEOUT_MS = 25_000;
 const INVENTORY_PAGE_SIZE = 100;
 const MAX_INVENTORY_PAGES = 60;
 const RESELLER_CACHE_MS = 6 * 60 * 60 * 1000;
+const PROBE_CACHE_MS = 10 * 60 * 1000;
 
-export type TolinoErrorKind = "auth" | "device_limit" | "network" | "response";
+/**
+ * `blocked` means the bookshop's bot protection refused the request before it
+ * reached the OAuth endpoint; the token itself was never checked.
+ */
+export type TolinoErrorKind = "auth" | "blocked" | "device_limit" | "network" | "response";
 
 export class TolinoError extends Error {
   constructor(
@@ -50,24 +66,11 @@ export class TolinoError extends Error {
   }
 }
 
-export type TolinoOAuth = {
-  tokenUrl: string;
-  clientId: string;
-  scope: string;
-};
-
 export type ResellerInfo = TolinoOAuth & {
   resellerId: number;
   name: string;
   apiBase: string;
   boshBase: string;
-};
-
-export type TokenSet = {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: Date;
-  refreshExpiresAt: Date | null;
 };
 
 export type TolinoSession = {
@@ -284,18 +287,10 @@ export async function getResellerInfo(resellerId: number): Promise<ResellerInfo>
 /*  OAuth tokens                                                               */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Exchanges a refresh token for a new access token. Refresh tokens rotate:
- * the returned refresh token replaces the one that was sent.
- */
-export async function refreshTokens(oauth: TolinoOAuth, refreshToken: string): Promise<TokenSet> {
-  const body = new URLSearchParams({
-    client_id: oauth.clientId,
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-  });
-  if (oauth.scope) body.set("scope", oauth.scope);
-
+async function postTokenEndpoint(
+  oauth: TolinoOAuth,
+  body: URLSearchParams,
+): Promise<ServiceResponse> {
   let response: Response;
   try {
     response = await fetch(oauth.tokenUrl, {
@@ -315,55 +310,55 @@ export async function refreshTokens(oauth: TolinoOAuth, refreshToken: string): P
       "network",
     );
   }
-
   const text = await response.text();
-  const json = tryParseJson(text) as
-    | {
-        access_token?: string;
-        refresh_token?: string;
-        expires_in?: number | string;
-        refresh_expires_in?: number | string;
-        error?: string;
-        error_description?: string;
-      }
-    | null;
+  return { status: response.status, json: tryParseJson(text), text };
+}
 
-  if (!response.ok) {
-    if (json?.error === "invalid_grant" || response.status === 400 || response.status === 401) {
-      throw new TolinoError(
-        "The bookshop rejected the refresh token. It has probably expired: sign in to the web reader again and connect with a fresh token.",
-        "auth",
-        response.status,
-      );
-    }
-    if (response.status === 403 && /geblockt|blocked|access denied/i.test(text)) {
-      throw new TolinoError(
-        `${new URL(oauth.tokenUrl).host} blocked the token request from this server.`,
-        "network",
-        403,
-      );
-    }
-    throw new TolinoError(
-      `The token endpoint answered ${response.status}${json?.error_description ? `: ${json.error_description}` : ""}`,
-      "response",
-      response.status,
+/**
+ * Exchanges a refresh token for a new access token. Refresh tokens rotate:
+ * the returned refresh token replaces the one that was sent.
+ */
+export async function refreshTokens(oauth: TolinoOAuth, refreshToken: string): Promise<TokenSet> {
+  const { status, json, text } = await postTokenEndpoint(oauth, buildRefreshBody(oauth, refreshToken));
+  if (status < 200 || status >= 300) {
+    const failure = describeTokenFailure(status, json, text, new URL(oauth.tokenUrl).host);
+    throw new TolinoError(failure.message, failure.kind, status);
+  }
+  const parsed = parseTokenResponse(json);
+  if (!parsed) {
+    throw new TolinoError("The token endpoint returned no tokens.", "response", status);
+  }
+  return tokenSetFromInput(parsed);
+}
+
+export type TokenEndpointReachability = "reachable" | "blocked" | "unknown";
+
+const probeCache = new Map<string, { at: number; result: TokenEndpointReachability }>();
+
+/**
+ * Finds out whether this server may talk to the bookshop's token endpoint at
+ * all. A deliberately invalid refresh token is sent: a JSON `invalid_grant`
+ * answer proves the endpoint is reachable, the HTML block page proves it is
+ * not. Nothing about a real account is touched.
+ */
+export async function probeTokenEndpoint(oauth: TolinoOAuth): Promise<TokenEndpointReachability> {
+  const cached = probeCache.get(oauth.tokenUrl);
+  if (cached && Date.now() - cached.at < PROBE_CACHE_MS) return cached.result;
+  let result: TokenEndpointReachability = "unknown";
+  try {
+    const { status, json, text } = await postTokenEndpoint(
+      oauth,
+      buildRefreshBody(oauth, "retrospine-reachability-probe"),
     );
+    if (isBlockedPage(status, text)) result = "blocked";
+    else if (json && typeof json === "object" && (status === 400 || status === 401)) {
+      result = "reachable";
+    }
+  } catch (error) {
+    console.warn("[tolino] token endpoint probe failed", error);
   }
-
-  if (!json?.access_token || !json.refresh_token) {
-    throw new TolinoError("The token endpoint returned no tokens.", "response", response.status);
-  }
-  const expiresIn = Number(json.expires_in);
-  const refreshExpiresIn = Number(json.refresh_expires_in);
-  return {
-    accessToken: json.access_token,
-    refreshToken: json.refresh_token,
-    expiresAt: new Date(Date.now() + (Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn : 3600) * 1000),
-    refreshExpiresAt:
-      Number.isFinite(refreshExpiresIn) && refreshExpiresIn > 0
-        ? new Date(Date.now() + refreshExpiresIn * 1000)
-        : null,
-  };
+  probeCache.set(oauth.tokenUrl, { at: Date.now(), result });
+  return result;
 }
 
 /* -------------------------------------------------------------------------- */

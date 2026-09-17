@@ -24,7 +24,8 @@ milestones on a timeline, and see where a book sits in its series.
   volumes of the same series.
 - **Tolino Cloud sync** – connect a tolino account and the books you own,
   where you are in them and what you finished appear on your shelves as
-  milestones, automatically in the background.
+  milestones, automatically in the background (or while Retrospine is open,
+  when the bookshop blocks the server).
 - **Accounts** – username and password login. The first account created on a
   fresh install becomes the administrator; afterwards registration is closed
   and the admin invites readers from the settings.
