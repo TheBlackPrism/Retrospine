@@ -15,7 +15,8 @@ Build it with `docker build -t retrospine .` or let compose do it.
 
 ## Published images
 
-Pushing a release tag (`v1.2.3`) runs the `Release image` workflow in
+Pushing a release tag (`1.2.3`; a leading `v` is accepted too) runs the
+`Release image` workflow in
 `.github/workflows/release-image.yml`. It builds the image natively for
 `linux/amd64` and `linux/arm64`, starts the amd64 image against a throwaway
 Postgres until `/api/health` answers, and then publishes one multi-arch
@@ -26,7 +27,7 @@ manifest to the GitHub Container Registry:
 | `ghcr.io/theblackprism/retrospine:1.2.3` | exactly this release |
 | `ghcr.io/theblackprism/retrospine:1.2` | the newest patch release of 1.2 |
 | `ghcr.io/theblackprism/retrospine:1` | the newest 1.x release (no `0` tag while the major version is 0) |
-| `ghcr.io/theblackprism/retrospine:latest` | the newest release; pre-releases such as `v1.3.0-rc.1` only get their own version tag |
+| `ghcr.io/theblackprism/retrospine:latest` | the newest release; pre-releases such as `1.3.0-rc.1` only get their own version tag |
 
 `docker-compose.yml` names the `app` image `ghcr.io/theblackprism/retrospine:latest`:
 
