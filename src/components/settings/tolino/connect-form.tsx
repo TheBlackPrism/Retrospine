@@ -120,23 +120,25 @@ export function TolinoConnectForm({
         <li className="flex gap-3">
           <StepNumber>3</StepNumber>
           <span>
-            Sign in with your bookshop account. A request called <strong>token</strong> appears;
-            open its <strong>Response</strong> and copy the value of{" "}
+            Sign in with your bookshop account. One or more requests called{" "}
+            <strong>token</strong> appear; open the <strong>last</strong> one, open its{" "}
+            <strong>Response</strong> and copy the value of{" "}
             <code className="rounded bg-muted px-1">refresh_token</code> (or the whole response).
           </span>
         </li>
         <li className="flex gap-3">
           <StepNumber>4</StepNumber>
           <span>
-            Close the web reader tab <strong>without signing out</strong>: signing out ends the
-            session that Retrospine is about to take over.
+            Do not reload the web reader or sign out afterwards. Reloading makes it use the token
+            again, which invalidates the copy you just took, and signing out ends the session
+            Retrospine is about to take over.
           </span>
         </li>
         <li className="flex gap-3">
           <StepNumber>5</StepNumber>
           <span>
-            Paste the token below right away (it stays valid for about an hour, and only until
-            the web reader uses it again), choose your bookshop and connect.
+            Paste the token below <strong>right away</strong> (it stays valid for about an hour,
+            and only until the web reader uses it again), choose your bookshop and connect.
           </span>
         </li>
       </ol>

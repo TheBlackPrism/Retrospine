@@ -101,15 +101,35 @@ export function describeTokenFailure(
   if (isBlockedPage(status, text)) {
     return { kind: "blocked", message: `${host} blocked the token request from ${requester}.` };
   }
-  if (raw.error === "invalid_grant" || status === 400 || status === 401) {
+  const error = typeof raw.error === "string" ? raw.error : null;
+  const description = typeof raw.error_description === "string" ? raw.error_description : null;
+  const said = description ? ` (${host} said: “${description}”)` : "";
+
+  // A rotated, used or expired refresh token: a fresh one fixes it.
+  if (error === "invalid_grant" || (!error && (status === 400 || status === 401))) {
     return {
       kind: "auth",
       message:
-        "The bookshop rejected the refresh token. It has probably expired or was already used: sign in to the web reader again and connect with a fresh token.",
+        `${host} rejected the refresh token, so the sign-in from ${requester} did not go through.${said} ` +
+        "It was most likely already used or has expired. In the web reader, sign in again, copy the " +
+        "refresh_token from the newest token request and connect straight away, without reloading the " +
+        "web reader in between.",
     };
   }
-  const detail = typeof raw.error_description === "string" ? `: ${raw.error_description}` : "";
-  return { kind: "response", message: `The token endpoint answered ${status}${detail}` };
+  // invalid_client, unauthorized_client, invalid_scope, invalid_request…: a fresh token will not help.
+  if (error) {
+    return {
+      kind: "response",
+      message:
+        `${host} refused the token request from ${requester}: ${error}${
+          description ? ` — ${description}` : ""
+        }. A fresh token will not fix this; the bookshop's OAuth settings for this shop may have changed.`,
+    };
+  }
+  return {
+    kind: "response",
+    message: `The token endpoint at ${host} answered ${status}${description ? `: ${description}` : ""}.`,
+  };
 }
 
 /** Whether a token that expires at `expiresAt` should be renewed now. */

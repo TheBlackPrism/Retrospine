@@ -87,6 +87,35 @@ describe("describeTokenFailure", () => {
     expect(failure.kind).toBe("auth");
     expect(describeTokenFailure(502, null, "bad gateway", "shop.example").kind).toBe("response");
   });
+
+  it("surfaces the shop's reason and the requester on a rejected token", () => {
+    const failure = describeTokenFailure(
+      400,
+      { error: "invalid_grant", error_description: "Token is not active" },
+      "{}",
+      "www.orellfuessli.ch",
+      "your browser",
+    );
+    expect(failure.kind).toBe("auth");
+    expect(failure.message).toContain("your browser");
+    expect(failure.message).toContain("Token is not active");
+  });
+
+  it("does not disguise other OAuth errors as an expired token", () => {
+    const invalidClient = describeTokenFailure(
+      401,
+      { error: "invalid_client", error_description: "Client not allowed" },
+      "{}",
+      "shop.example",
+    );
+    expect(invalidClient.kind).toBe("response");
+    expect(invalidClient.message).toContain("invalid_client");
+    expect(invalidClient.message).toContain("Client not allowed");
+
+    const invalidScope = describeTokenFailure(400, { error: "invalid_scope" }, "{}", "shop.example");
+    expect(invalidScope.kind).toBe("response");
+    expect(invalidScope.message).toContain("invalid_scope");
+  });
 });
 
 describe("needsRefresh", () => {
