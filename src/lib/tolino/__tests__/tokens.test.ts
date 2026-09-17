@@ -68,6 +68,20 @@ describe("describeTokenFailure", () => {
     );
   });
 
+  it("recognises the Cloudflare block page the Thalia group shops serve", () => {
+    // Captured from www.orellfuessli.ch/auth/oauth2/token (HTTP 403, server: cloudflare).
+    const page =
+      '<!DOCTYPE html>\n<html lang="de">\n<head>\n    <title>Zugriff geblockt</title>\n' +
+      '    <meta name="robots" content="noindex, nofollow">\n' +
+      '    <style>layout-fehlerseite *{border:none;box-sizing:border-box;margin:0;padding:0}</style>';
+    expect(isBlockedPage(403, page)).toBe(true);
+    expect(describeTokenFailure(403, null, page, "www.orellfuessli.ch").kind).toBe("blocked");
+    // The same shop's real answer to a bad token is JSON, never a block.
+    const json = { error: "invalid_grant", error_description: "Invalid refresh token: x" };
+    expect(isBlockedPage(400, JSON.stringify(json))).toBe(false);
+    expect(describeTokenFailure(400, json, JSON.stringify(json), "www.orellfuessli.ch").kind).toBe("auth");
+  });
+
   it("treats invalid_grant as an expired token", () => {
     const failure = describeTokenFailure(400, { error: "invalid_grant" }, "{}", "shop.example");
     expect(failure.kind).toBe("auth");

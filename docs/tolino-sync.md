@@ -44,21 +44,26 @@ flowchart LR
 ## When the bookshop blocks the server
 
 Token requests go to the bookshop, and its bot protection (Cloudflare in
-front of the Thalia group shops) scores the client: requests identifying as
-a tolino device are let through from most addresses, but some hosting
-ranges are refused with an HTML "Zugriff geblockt" page no matter what.
-Retrospine finds out on its own: when connecting, the server sends a
-deliberately invalid refresh token to the token endpoint (`invalid_grant`
-proves it is reachable, the block page proves it is not), and a block during
-a later refresh switches the connection over as well.
+front of the Thalia group shops) answers an HTML "Zugriff geblockt" page to
+clients whose TLS fingerprint is not a browser's, whatever user agent they
+send. Node's is not, so expect most servers to be blocked; Retrospine still
+identifies as a tolino device, which some addresses get away with. It finds
+out on its own: when connecting, the server sends a deliberately invalid
+refresh token to the token endpoint (`invalid_grant` proves it is reachable,
+the block page or anything else proves it is not), and a block during a
+later refresh switches the connection over as well. The Tolino Cloud hosts
+(`api.pageplace.de`, `bosh.pageplace.de`) do not filter; the server keeps
+talking to them directly.
 
-For a blocked server the connection runs in **browser mode**
-(`tolino_connections.refresh_mode = browser`):
+Unless the probe proves the shop reachable, the connection runs in
+**browser mode** (`tolino_connections.refresh_mode = browser`):
 
 - The connect form exchanges the pasted token in the reader's browser
-  (`src/lib/tolino/browser.ts`); the token endpoint allows cross-origin
-  requests, and browsers are not blocked. The resulting tokens are handed to
-  the server, which still talks to the Tolino Cloud itself.
+  (`src/lib/tolino/browser.ts`); the token endpoint answers cross-origin
+  requests with `Access-Control-Allow-Origin: *`, and browsers pass the bot
+  check. The resulting tokens are handed to the server, which still talks
+  to the Tolino Cloud itself. A server exchange that turns out to be blocked
+  after all makes the form fall back to the browser as well.
 - While Retrospine is open in a browser tab, `TolinoTokenKeeper` (mounted in
   the app layout) renews the access token 15 minutes before it expires and
   gives the rotated refresh token back to the server. Tabs coordinate
@@ -72,6 +77,15 @@ For a blocked server the connection runs in **browser mode**
 The settings page says which mode a connection is in. Once an hour the
 scheduler probes the shop again for connections in browser mode and hands
 token renewal back to the server as soon as the shop answers it.
+
+Either way the web reader session the token came from must stay alive:
+signing out of the web reader revokes it, and the web reader using its own
+copy of the refresh token again can invalidate the rotated one Retrospine
+holds. The connect form therefore asks the reader to close the web reader
+tab without signing out, and to connect again with a fresh token if a later
+web reader sign-in breaks the connection. (`tolino-calibre-sync`, a
+command-line client that reuses a browser session the same way, gives the
+same advice.)
 
 ## Matching books
 
@@ -147,11 +161,15 @@ There is no public API; the requests mirror the official web reader
 | Purpose | Request |
 | --- | --- |
 | Bookshop OAuth details | `GET bosh.pageplace.de/bosh/rest/v2/resellerconfig` |
-| Token refresh | `POST <shop>/auth/oauth2/token` (`grant_type=refresh_token`), sent with a tolino device user agent because the shops block generic clients; from the browser when the server is blocked |
-| Devices | `POST bosh.pageplace.de/bosh/rest/handshake/devices/list`, `POST api.pageplace.de/v1/devices` |
+| Token refresh | `POST <shop>/auth/oauth2/token` (`grant_type=refresh_token`, body exactly as the web reader sends it); from the browser unless the server is proven not to be blocked |
+| Devices | `POST bosh.pageplace.de/bosh/rest/handshake/devices/list`, `POST api.pageplace.de/v1/devices`, fallback `POST bosh.pageplace.de/bosh/rest/v2/registerhw` |
 | Inventory | `GET api.pageplace.de/v8/inventory?page=…` (paged), fallback `GET bosh.pageplace.de/bosh/rest/inventory/delta` |
 | Reading state | `PATCH api.pageplace.de/v4/reading-metadata?paths=publications,audiobooks` with an empty revision (full state), fallback `PATCH bosh.pageplace.de/bosh/rest/sync-data` |
 
-Only the response parsing is covered by unit tests
-(`src/lib/tolino/__tests__/parse.test.ts`); the endpoints themselves can only
-be exercised with a real account.
+Every `api.pageplace.de` request falls back to its BOSH counterpart when it
+fails for any reason but the device limit; the BOSH requests are the ones
+the command-line clients (`tolino-python`, `tolino-calibre-sync`) use. The
+request shapes were checked against the web reader 5.15.2 bundle and
+against `tolino-calibre-sync`. Only the response parsing is covered by unit
+tests (`src/lib/tolino/__tests__/parse.test.ts`); the endpoints themselves
+can only be exercised with a real account.

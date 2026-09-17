@@ -31,6 +31,9 @@ export type TokenFailure = {
   message: string;
 };
 
+/** `code` of a failed connect action whose server-side token exchange the bookshop blocked. */
+export const TOKEN_EXCHANGE_BLOCKED = "blocked";
+
 /** Form body of a refresh-token grant, exactly as the tolino web reader sends it. */
 export function buildRefreshBody(oauth: TolinoOAuth, refreshToken: string): URLSearchParams {
   const body = new URLSearchParams({

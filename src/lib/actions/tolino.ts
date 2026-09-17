@@ -24,7 +24,11 @@ import {
 } from "@/lib/tolino/connection";
 import { findReseller } from "@/lib/tolino/resellers";
 import { describeSyncError, runClaimedSync } from "@/lib/tolino/sync";
-import { tokenSetFromInput, type TolinoOAuth } from "@/lib/tolino/tokens";
+import {
+  TOKEN_EXCHANGE_BLOCKED,
+  tokenSetFromInput,
+  type TolinoOAuth,
+} from "@/lib/tolino/tokens";
 import type { ActionResult } from "./state";
 
 function revalidateTolino() {
@@ -57,8 +61,9 @@ export type TolinoConnectPreparation = {
   resellerName: string;
   oauth: TolinoOAuth;
   /**
-   * False when the bookshop's bot protection blocks this server, in which
-   * case the browser has to exchange the token itself.
+   * True only when the bookshop demonstrably answers this server. Otherwise
+   * (blocked by its bot protection, or no clear answer) the browser has to
+   * exchange the token itself.
    */
   serverCanRefresh: boolean;
 };
@@ -79,7 +84,7 @@ export async function prepareTolinoConnectAction(
       data: {
         resellerName: reseller.name,
         oauth: { tokenUrl: reseller.tokenUrl, clientId: reseller.clientId, scope: reseller.scope },
-        serverCanRefresh: reachability !== "blocked",
+        serverCanRefresh: reachability === "reachable",
       },
     };
   } catch (error) {
@@ -110,7 +115,8 @@ export type ConnectTolinoResult = { resellerName: string; refreshMode: "server" 
 /**
  * Stores a connection. Either the server exchanges the pasted refresh token,
  * or the browser already did (when the bookshop blocks the server) and hands
- * over the resulting tokens.
+ * over the resulting tokens. A server exchange the bookshop blocks fails
+ * with `code: TOKEN_EXCHANGE_BLOCKED` so the form can retry from the browser.
  */
 export async function connectTolinoAction(
   input: unknown,
@@ -139,7 +145,13 @@ export async function connectTolinoAction(
       data: { resellerName: connection.resellerName, refreshMode: connection.refreshMode },
     };
   } catch (error) {
-    if (error instanceof TolinoError) return { ok: false, error: error.message };
+    if (error instanceof TolinoError) {
+      return {
+        ok: false,
+        error: error.message,
+        code: error.kind === "blocked" && !parsed.data.tokens ? TOKEN_EXCHANGE_BLOCKED : undefined,
+      };
+    }
     return { ok: false, error: errorMessage(error) };
   }
 }

@@ -7,4 +7,9 @@ export const idleState: FormState = { status: "idle" };
 
 export type ActionResult<T = undefined> =
   | { ok: true; message?: string; data?: T }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      /** Machine-readable reason for the few callers that react to one. */
+      code?: string;
+    };

@@ -21,6 +21,7 @@ import type { FormState } from "@/lib/actions/state";
 import { refreshTokensInBrowser } from "@/lib/tolino/browser";
 import { extractRefreshToken } from "@/lib/tolino/parse";
 import { TOLINO_RESELLERS, TOLINO_WEB_READER_URL } from "@/lib/tolino/resellers";
+import { TOKEN_EXCHANGE_BLOCKED } from "@/lib/tolino/tokens";
 
 export function TolinoConnectForm({
   defaultResellerId,
@@ -61,17 +62,22 @@ export function TolinoConnectForm({
       }
       const { serverCanRefresh, oauth } = prepared.data!;
 
-      let result;
-      if (serverCanRefresh) {
-        result = await connectTolinoAction({ resellerId: reseller, refreshToken, hardwareId });
-      } else {
-        // The bookshop blocks this server, so the browser exchanges the token.
+      let result = serverCanRefresh
+        ? await connectTolinoAction({ resellerId: reseller, refreshToken, hardwareId })
+        : null;
+      if (!result || (!result.ok && result.code === TOKEN_EXCHANGE_BLOCKED)) {
+        // The bookshop blocks this server (or gave no clear answer), so the
+        // browser exchanges the token and hands the result to the server.
         const exchanged = await refreshTokensInBrowser(oauth, refreshToken);
         if (!exchanged.ok) {
           setState({ status: "error", message: exchanged.failure.message });
           return;
         }
-        result = await connectTolinoAction({ resellerId: reseller, tokens: exchanged.tokens, hardwareId });
+        result = await connectTolinoAction({
+          resellerId: reseller,
+          tokens: exchanged.tokens,
+          hardwareId,
+        });
       }
 
       if (result.ok) {
@@ -121,7 +127,17 @@ export function TolinoConnectForm({
         </li>
         <li className="flex gap-3">
           <StepNumber>4</StepNumber>
-          <span>Paste it below within the hour, choose your bookshop and connect.</span>
+          <span>
+            Close the web reader tab <strong>without signing out</strong>: signing out ends the
+            session that Retrospine is about to take over.
+          </span>
+        </li>
+        <li className="flex gap-3">
+          <StepNumber>5</StepNumber>
+          <span>
+            Paste the token below right away (it stays valid for about an hour, and only until
+            the web reader uses it again), choose your bookshop and connect.
+          </span>
         </li>
       </ol>
 
@@ -158,8 +174,9 @@ export function TolinoConnectForm({
           className="font-mono text-xs"
         />
         <p className="text-xs text-muted-foreground">
-          Retrospine takes over this sign-in and keeps it alive. The web reader tab will ask you
-          to sign in again the next time you open it; that does not affect Retrospine.
+          Retrospine takes over this sign-in and keeps it alive. The next time you open the web
+          reader it may ask you to sign in again; if Retrospine then reports a failed sign-in,
+          connect again with the new token.
         </p>
       </div>
 
@@ -185,9 +202,11 @@ export function TolinoConnectForm({
             />
             <p className="text-xs text-muted-foreground">
               Normally Retrospine reuses the web reader&apos;s device. If that fails, copy the{" "}
-              <code className="rounded bg-muted px-1">hardware-id</code> request header of any
-              request to <code className="rounded bg-muted px-1">api.pageplace.de</code> from the
-              Network tab.
+              <code className="rounded bg-muted px-1">hardware_id</code> (or{" "}
+              <code className="rounded bg-muted px-1">hardware-id</code>) request header of the{" "}
+              <strong>devices</strong> or <strong>inventory</strong> request to{" "}
+              <code className="rounded bg-muted px-1">api.pageplace.de</code> from the Network
+              tab.
             </p>
           </div>
         ) : null}

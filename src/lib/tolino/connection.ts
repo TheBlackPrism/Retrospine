@@ -112,7 +112,9 @@ export async function connectTolino(
   let refreshMode: TolinoRefreshMode = "server";
   if (input.tokens) {
     tokens = tokenSetFromInput(input.tokens);
-    refreshMode = (await probeTokenEndpoint(reseller)) === "blocked" ? "browser" : "server";
+    // The browser did the exchange; the server only takes renewal over when
+    // the bookshop demonstrably answers it.
+    refreshMode = (await probeTokenEndpoint(reseller)) === "reachable" ? "server" : "browser";
   } else if (input.refreshToken?.trim()) {
     tokens = await refreshTokens(reseller, input.refreshToken.trim());
   } else {
@@ -135,14 +137,17 @@ export async function connectTolino(
     }
     hardwareId = pickWebReaderDevice(devices)?.id ?? null;
     if (!hardwareId) {
-      hardwareId = generateHardwareId();
-      await registerDevice({ ...base, hardwareId });
+      const generated = generateHardwareId();
+      await step(reseller.name, "registering Retrospine as a device", () =>
+        registerDevice({ ...base, hardwareId: generated }),
+      );
+      hardwareId = generated;
     }
   }
 
   const session: TolinoSession = { ...base, hardwareId };
   // One authenticated request proves that token and device id work together.
-  await fetchReadingState(session);
+  await step(reseller.name, "reading the library", () => fetchReadingState(session));
 
   const values = {
     userId,
@@ -168,6 +173,26 @@ export async function connectTolino(
     .onConflictDoUpdate({ target: schema.tolinoConnections.userId, set: values })
     .returning();
   return row;
+}
+
+/**
+ * Runs one step of the connection check and, when it fails, says which one:
+ * the sign-in itself worked at that point, which is what the reader needs to
+ * know to tell a bad token from a Tolino Cloud problem.
+ */
+async function step<T>(shop: string, what: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof TolinoError) {
+      throw new TolinoError(
+        `Signed in to ${shop}, but ${what} failed: ${error.message}`,
+        error.kind,
+        error.status,
+      );
+    }
+    throw error;
+  }
 }
 
 /** Removes the connection and the publication mappings; shelves and milestones stay. */

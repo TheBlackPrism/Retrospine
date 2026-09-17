@@ -37,10 +37,12 @@ export const CLIENT_TYPE = "TOLINO_WEBREADER";
 export const CLIENT_VERSION = "5.15.2";
 
 /**
- * The bookshops' OAuth endpoints sit behind a bot filter that answers
- * "Zugriff geblockt" to generic HTTP clients. Requests identifying as a
- * tolino reading device are let through, which is how the readers refresh
- * their tokens; the Tolino API itself does not filter.
+ * The bookshops' OAuth endpoints sit behind Cloudflare's bot protection,
+ * which answers "Zugriff geblockt" to clients whose TLS fingerprint is not a
+ * browser's, whatever they send as user agent. Identifying as a tolino
+ * reading device still gets some servers through, so it is sent; when it
+ * does not, the reader's browser exchanges the tokens instead (browser mode,
+ * see `browser.ts`). The Tolino API hosts themselves do not filter.
  */
 const TOKEN_USER_AGENT = "Dalvik/1.6.0 (Linux; U; Android 4.4.2; tolino Build/KOT49H)";
 const TIMEOUT_MS = 25_000;
@@ -322,18 +324,31 @@ export async function refreshTokens(oauth: TolinoOAuth, refreshToken: string): P
   const { status, json, text } = await postTokenEndpoint(oauth, buildRefreshBody(oauth, refreshToken));
   if (status < 200 || status >= 300) {
     const failure = describeTokenFailure(status, json, text, new URL(oauth.tokenUrl).host);
+    // A real exchange is the best probe there is: remember its verdict.
+    if (failure.kind === "blocked") rememberReachability(oauth, "blocked");
+    else if (failure.kind === "auth") rememberReachability(oauth, "reachable");
     throw new TolinoError(failure.message, failure.kind, status);
   }
   const parsed = parseTokenResponse(json);
   if (!parsed) {
     throw new TolinoError("The token endpoint returned no tokens.", "response", status);
   }
+  rememberReachability(oauth, "reachable");
   return tokenSetFromInput(parsed);
 }
 
+/**
+ * `unknown` covers timeouts, challenge pages and other answers that are
+ * neither the block page nor a JSON error; callers treat it like `blocked`
+ * and let the browser exchange the tokens.
+ */
 export type TokenEndpointReachability = "reachable" | "blocked" | "unknown";
 
 const probeCache = new Map<string, { at: number; result: TokenEndpointReachability }>();
+
+function rememberReachability(oauth: TolinoOAuth, result: TokenEndpointReachability): void {
+  probeCache.set(oauth.tokenUrl, { at: Date.now(), result });
+}
 
 /**
  * Finds out whether this server may talk to the bookshop's token endpoint at
@@ -357,8 +372,27 @@ export async function probeTokenEndpoint(oauth: TolinoOAuth): Promise<TokenEndpo
   } catch (error) {
     console.warn("[tolino] token endpoint probe failed", error);
   }
-  probeCache.set(oauth.tokenUrl, { at: Date.now(), result });
+  rememberReachability(oauth, result);
   return result;
+}
+
+/**
+ * Runs a request against the current API and, when that fails for any reason
+ * but the device limit, the equivalent legacy BOSH request (the one the
+ * command-line clients use). Only when both fail is the legacy error thrown.
+ */
+async function withLegacyFallback<T>(
+  what: string,
+  current: () => Promise<T>,
+  legacy: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await current();
+  } catch (error) {
+    if (error instanceof TolinoError && error.kind === "device_limit") throw error;
+    console.warn(`[tolino] ${what} via api failed, trying bosh:`, describe(error));
+  }
+  return legacy();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -437,22 +471,21 @@ export async function registerDevice(session: TolinoSession, name = "Retrospine"
     client_version: CLIENT_VERSION,
   };
   const body = JSON.stringify({ hardware_name: name });
-  try {
-    await call(`${apiBase(session)}/v1/devices`, {
-      method: "POST",
-      headers: { ...headers, hardware_type: CLIENT_TYPE },
-      body,
-    });
-    return;
-  } catch (error) {
-    if (error instanceof TolinoError && error.kind !== "response") throw error;
-    console.warn("[tolino] device registration via api failed, trying bosh", error);
-  }
-  await call(`${boshBase(session)}/v2/registerhw`, {
-    method: "POST",
-    headers: { ...headers, hardware_type: "HTML5" },
-    body,
-  });
+  await withLegacyFallback(
+    "device registration",
+    () =>
+      call(`${apiBase(session)}/v1/devices`, {
+        method: "POST",
+        headers: { ...headers, hardware_type: CLIENT_TYPE },
+        body,
+      }),
+    () =>
+      call(`${boshBase(session)}/v2/registerhw`, {
+        method: "POST",
+        headers: { ...headers, hardware_type: "HTML5" },
+        body,
+      }),
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -498,13 +531,11 @@ async function fetchInventoryLegacy(session: TolinoSession): Promise<TolinoPubli
 
 /** All publications (purchases, uploads, audiobooks) in the account's library. */
 export async function fetchInventory(session: TolinoSession): Promise<TolinoPublication[]> {
-  try {
-    return await fetchInventoryPaged(session);
-  } catch (error) {
-    if (error instanceof TolinoError && error.kind !== "response") throw error;
-    console.warn("[tolino] paged inventory failed, falling back to bosh", error);
-  }
-  return fetchInventoryLegacy(session);
+  return withLegacyFallback(
+    "inventory",
+    () => fetchInventoryPaged(session),
+    () => fetchInventoryLegacy(session),
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -539,13 +570,10 @@ async function fetchSyncDataLegacy(session: TolinoSession): Promise<unknown> {
 export async function fetchReadingState(
   session: TolinoSession,
 ): Promise<Map<string, TolinoReadingState>> {
-  let json: unknown;
-  try {
-    json = await fetchSyncDataCurrent(session);
-  } catch (error) {
-    if (error instanceof TolinoError && error.kind !== "response") throw error;
-    console.warn("[tolino] reading metadata failed, falling back to bosh sync-data", error);
-    json = await fetchSyncDataLegacy(session);
-  }
+  const json = await withLegacyFallback(
+    "reading state",
+    () => fetchSyncDataCurrent(session),
+    () => fetchSyncDataLegacy(session),
+  );
   return parseReadingState(collectPatches(json));
 }
