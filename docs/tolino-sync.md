@@ -41,38 +41,49 @@ flowchart LR
    down for longer than an hour, the sync fails with "Tolino Cloud sign-in
    failed" and the settings page offers to connect again with a fresh token.
 
-## When the bookshop blocks the server
+## When the bookshop will not issue tokens to Retrospine
 
-Token requests go to the bookshop, and its bot protection (Cloudflare in
-front of the Thalia group shops) answers an HTML "Zugriff geblockt" page to
-clients whose TLS fingerprint is not a browser's, whatever user agent they
-send. Node's is not, so expect most servers to be blocked; Retrospine still
-identifies as a tolino device, which some addresses get away with. It finds
-out on its own: when connecting, the server sends a deliberately invalid
-refresh token to the token endpoint (`invalid_grant` proves it is reachable,
-the block page or anything else proves it is not), and a block during a
-later refresh switches the connection over as well. The Tolino Cloud hosts
-(`api.pageplace.de`, `bosh.pageplace.de`) do not filter; the server keeps
-talking to them directly.
+Getting a token from a Thalia group shop (Thalia, Orell Füssli, Osiander)
+is guarded twice over, and both guards were confirmed against the live
+`www.orellfuessli.ch/auth/oauth2/token` endpoint:
 
-Unless the probe proves the shop reachable, the connection runs in
-**browser mode** (`tolino_connections.refresh_mode = browser`):
+- **Cloudflare blocks the server.** The endpoint answers an HTML "Zugriff
+  geblockt" page to any client whose TLS fingerprint is not a real
+  browser's, whatever user agent or headers it sends. Node and curl are
+  refused; only a real browser gets through.
+- **The shop routes by `Origin`.** A browser request carrying
+  `Origin: https://webreader.mytolino.com` reaches the real Keycloak token
+  endpoint. The same request from any other origin is routed to a decoy that
+  echoes the token back in an `invalid_grant` error and never accepts it. A
+  page cannot forge `Origin`, so a request from Retrospine's own address
+  always hits the decoy.
 
-- The connect form exchanges the pasted token in the reader's browser
-  (`src/lib/tolino/browser.ts`); the token endpoint answers cross-origin
-  requests with `Access-Control-Allow-Origin: *`, and browsers pass the bot
-  check. The resulting tokens are handed to the server, which still talks
-  to the Tolino Cloud itself. A server exchange that turns out to be blocked
-  after all makes the form fall back to the browser as well.
-- While Retrospine is open in a browser tab, `TolinoTokenKeeper` (mounted in
-  the app layout) renews the access token 15 minutes before it expires and
-  gives the rotated refresh token back to the server. Tabs coordinate
-  through the Web Locks API so only one of them refreshes.
-- Scheduled syncs run as long as the access token is valid. About an hour
-  after the last open tab, the tokens expire; the next visit shows
-  "Tolino Cloud sign-in failed" and the form to connect again. In other
-  words: syncs happen while and shortly after you use Retrospine, not
-  unattended for days.
+Between the two, Retrospine can neither exchange a refresh token on the
+server (blocked) nor in the reader's browser (wrong origin) for these shops.
+What it can do is reuse the tokens the **web reader itself** already
+obtained: the web reader ran on `webreader.mytolino.com`, so the access
+token in its `token` response is real. The Tolino Cloud hosts
+(`api.pageplace.de`, `bosh.pageplace.de`) do not block the server and do not
+route by origin, so the server syncs with that access token directly.
+
+- **Paste the whole token response.** The connect form reads the
+  `access_token` (plus `refresh_token` and `expires_in`) straight from the
+  pasted response and stores them without asking the shop again
+  (`extractTokenResponse` in `src/lib/tolino/parse.ts`). The first sync runs
+  immediately.
+- **A shop that does answer the server or another browser origin** (some
+  non-Thalia resellers) still works the old way: paste only the
+  `refresh_token` and Retrospine exchanges it on the server, or in the
+  reader's browser when the server is blocked
+  (`src/lib/tolino/browser.ts`). The connection is then in **server** or
+  **browser** mode and `TolinoTokenKeeper` keeps it renewed.
+- **Background refresh needs one of those two paths to work.** For the
+  Thalia group shops neither does, so the access token simply expires about
+  an hour after you paste it; the settings page then shows
+  "Tolino Cloud sign-in failed" and the form to connect again. Reconnecting
+  takes a few seconds: open the web reader, copy the `token` response, paste.
+  Syncs happen while and shortly after you use Retrospine, not unattended
+  for days.
 
 The settings page says which mode a connection is in. Once an hour the
 scheduler probes the shop again for connections in browser mode and hands

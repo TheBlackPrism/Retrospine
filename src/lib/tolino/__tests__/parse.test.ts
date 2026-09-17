@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectPatches,
   extractRefreshToken,
+  extractTokenResponse,
   isbn10To13,
   isbnFromPublicationId,
   normalizeIsbn13,
@@ -282,5 +283,35 @@ describe("extractRefreshToken", () => {
     ).toBe("r-1");
     expect(extractRefreshToken('{"refresh_token": "r-2", broken')).toBe("r-2");
     expect(extractRefreshToken("{}")).toBe("");
+  });
+});
+
+describe("extractTokenResponse", () => {
+  it("reads the access token the web reader already obtained", () => {
+    const tokens = extractTokenResponse(
+      '{"access_token":"a-1","refresh_token":"r-1","expires_in":3600,"refresh_expires_in":3600,"token_type":"bearer"}',
+    );
+    expect(tokens).toEqual({
+      accessToken: "a-1",
+      refreshToken: "r-1",
+      expiresIn: 3600,
+      refreshExpiresIn: 3600,
+    });
+  });
+
+  it("defaults the access-token lifetime and tolerates a missing refresh expiry", () => {
+    expect(extractTokenResponse('{"access_token":"a","refresh_token":"r"}')).toEqual({
+      accessToken: "a",
+      refreshToken: "r",
+      expiresIn: 3600,
+      refreshExpiresIn: null,
+    });
+  });
+
+  it("returns null for a bare token or an incomplete response", () => {
+    expect(extractTokenResponse("just-a-refresh-token")).toBeNull();
+    expect(extractTokenResponse('{"refresh_token":"r"}')).toBeNull();
+    expect(extractTokenResponse('{"access_token":"a"}')).toBeNull();
+    expect(extractTokenResponse("{ broken")).toBeNull();
   });
 });

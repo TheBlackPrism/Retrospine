@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { connectTolinoAction, prepareTolinoConnectAction } from "@/lib/actions/tolino";
 import type { FormState } from "@/lib/actions/state";
 import { refreshTokensInBrowser } from "@/lib/tolino/browser";
-import { extractRefreshToken } from "@/lib/tolino/parse";
+import { extractRefreshToken, extractTokenResponse } from "@/lib/tolino/parse";
 import { TOLINO_RESELLERS, TOLINO_WEB_READER_URL } from "@/lib/tolino/resellers";
 import { TOKEN_EXCHANGE_BLOCKED } from "@/lib/tolino/tokens";
 
@@ -41,20 +41,39 @@ export function TolinoConnectForm({
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const refreshToken = extractRefreshToken(String(form.get("refreshToken") ?? ""));
+    const raw = String(form.get("refreshToken") ?? "");
+    const pastedTokens = extractTokenResponse(raw);
+    const refreshToken = extractRefreshToken(raw);
     const hardwareId = String(form.get("hardwareId") ?? "").trim();
     const reseller = Number(resellerId);
     if (!reseller) {
       setState({ status: "error", message: "Choose your bookshop." });
       return;
     }
-    if (refreshToken.length < 8) {
-      setState({ status: "error", message: "Paste the refresh token from the web reader." });
+    if (!pastedTokens && refreshToken.length < 8) {
+      setState({ status: "error", message: "Paste the token response from the web reader." });
       return;
     }
 
     startTransition(async () => {
       setState({ status: "idle" });
+
+      // Preferred path: the paste is the whole token response, so the web
+      // reader already obtained the access token. Retrospine uses it as is,
+      // which works even for shops that only mint tokens for their own web
+      // reader (they refuse the server and any other browser origin).
+      if (pastedTokens) {
+        const result = await connectTolinoAction({
+          resellerId: reseller,
+          tokens: pastedTokens,
+          hardwareId,
+        });
+        finish(result);
+        return;
+      }
+
+      // Only a bare refresh token was pasted: Retrospine has to exchange it,
+      // on the server when the shop answers it, otherwise in this browser.
       const prepared = await prepareTolinoConnectAction(reseller);
       if (!prepared.ok) {
         setState({ status: "error", message: prepared.error });
@@ -66,8 +85,6 @@ export function TolinoConnectForm({
         ? await connectTolinoAction({ resellerId: reseller, refreshToken, hardwareId })
         : null;
       if (!result || (!result.ok && result.code === TOKEN_EXCHANGE_BLOCKED)) {
-        // The bookshop blocks this server (or gave no clear answer), so the
-        // browser exchanges the token and hands the result to the server.
         const exchanged = await refreshTokensInBrowser(oauth, refreshToken);
         if (!exchanged.ok) {
           setState({ status: "error", message: exchanged.failure.message });
@@ -79,14 +96,17 @@ export function TolinoConnectForm({
           hardwareId,
         });
       }
+      finish(result);
+    });
 
+    function finish(result: Awaited<ReturnType<typeof connectTolinoAction>>) {
       if (result.ok) {
         toast.success(result.message);
         router.refresh();
       } else {
         setState({ status: "error", message: result.error });
       }
-    });
+    }
   }
 
   return (
@@ -121,9 +141,9 @@ export function TolinoConnectForm({
           <StepNumber>3</StepNumber>
           <span>
             Sign in with your bookshop account. One or more requests called{" "}
-            <strong>token</strong> appear; open the <strong>last</strong> one, open its{" "}
-            <strong>Response</strong> and copy the value of{" "}
-            <code className="rounded bg-muted px-1">refresh_token</code> (or the whole response).
+            <strong>token</strong> appear; open the <strong>last</strong> one, switch to its{" "}
+            <strong>Response</strong> and copy the <strong>whole</strong> JSON body (it starts
+            with <code className="rounded bg-muted px-1">{"{"}&quot;access_token&quot;</code>).
           </span>
         </li>
         <li className="flex gap-3">
@@ -164,21 +184,21 @@ export function TolinoConnectForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="tolino-refresh-token">Refresh token</Label>
+        <Label htmlFor="tolino-refresh-token">Token response</Label>
         <Textarea
           id="tolino-refresh-token"
           name="refreshToken"
-          rows={3}
+          rows={4}
           required
           autoComplete="off"
           spellCheck={false}
-          placeholder="Paste the refresh_token here"
+          placeholder='Paste the whole token response, e.g. {"access_token":"…","refresh_token":"…","expires_in":3600}'
           className="font-mono text-xs"
         />
         <p className="text-xs text-muted-foreground">
-          Retrospine takes over this sign-in and keeps it alive. The next time you open the web
-          reader it may ask you to sign in again; if Retrospine then reports a failed sign-in,
-          connect again with the new token.
+          Retrospine uses the access token the web reader just obtained, so it syncs right away.
+          Some bookshops only let their own web reader renew tokens; if syncing later stops,
+          reopen the web reader and connect again with a fresh token response.
         </p>
       </div>
 

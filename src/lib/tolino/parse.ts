@@ -483,3 +483,53 @@ export function extractRefreshToken(raw: string): string {
     return match ? match[1].trim() : "";
   }
 }
+
+type PastedTokenSet = {
+  accessToken: string;
+  refreshToken: string;
+  /** Seconds until the access token expires; the shop default is an hour. */
+  expiresIn: number;
+  /** Seconds until the refresh token expires, or null when the paste omits it. */
+  refreshExpiresIn: number | null;
+};
+
+function positiveInt(value: unknown): number | null {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+/**
+ * Reads the whole JSON body of the web reader's `token` response, i.e. the
+ * access token the web reader already obtained together with its refresh
+ * token. Returns null unless both tokens are present.
+ *
+ * Some bookshops only mint tokens for requests coming from their own web
+ * reader (they route by `Origin`), so Retrospine cannot exchange a refresh
+ * token itself. Reusing the tokens the web reader already holds is the only
+ * thing that works there, which is why the whole response is accepted.
+ */
+export function extractTokenResponse(raw: string): PastedTokenSet | null {
+  const value = raw.trim();
+  if (!value.startsWith("{")) return null;
+  let parsed: {
+    access_token?: unknown;
+    refresh_token?: unknown;
+    expires_in?: unknown;
+    refresh_expires_in?: unknown;
+  };
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (typeof parsed.access_token !== "string" || typeof parsed.refresh_token !== "string") {
+    return null;
+  }
+  if (!parsed.access_token.trim() || !parsed.refresh_token.trim()) return null;
+  return {
+    accessToken: parsed.access_token.trim(),
+    refreshToken: parsed.refresh_token.trim(),
+    expiresIn: positiveInt(parsed.expires_in) ?? 3600,
+    refreshExpiresIn: positiveInt(parsed.refresh_expires_in),
+  };
+}
